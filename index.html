@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Google AI Studio App</title>
+    <script>
+      (function() {
+        try {
+          if (typeof window !== 'undefined') {
+            var activeFetch = window.fetch;
+            var desc = Object.getOwnPropertyDescriptor(window, 'fetch') || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window), 'fetch');
+            
+            // Check if we can safely redefine the property
+            if (!desc || desc.configurable) {
+              Object.defineProperty(window, 'fetch', {
+                get: function() {
+                  return activeFetch;
+                },
+                set: function(val) {
+                  activeFetch = val;
+                },
+                configurable: true,
+                enumerable: true
+              });
+            } else {
+              // If not configurable directly on window, try setting on prototype or globalThis
+              var proto = Object.getPrototypeOf(window);
+              var protoDesc = Object.getOwnPropertyDescriptor(proto, 'fetch');
+              if (protoDesc && protoDesc.configurable) {
+                Object.defineProperty(proto, 'fetch', {
+                  get: function() {
+                    return activeFetch;
+                  },
+                  set: function(val) {
+                    activeFetch = val;
+                  },
+                  configurable: true,
+                  enumerable: true
+                });
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Failed to patch window.fetch setter safely in index.html:", e);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

@@ -1,0 +1,1337 @@
+import React, { useState, useEffect, useRef } from "react";
+import { 
+  Send, 
+  Sparkles, 
+  ArrowRight, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Compass, 
+  Fingerprint, 
+  History, 
+  HelpCircle, 
+  Plus, 
+  Search, 
+  ExternalLink,
+  ShieldCheck,
+  ShieldAlert,
+  Bot,
+  Zap,
+  BookOpen,
+  Activity,
+  Cpu,
+  Layers,
+  User,
+  Wallet,
+  Shield,
+  LogOut,
+  Twitter
+} from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import WalletCard from "./components/WalletCard";
+import ContactsDatabase from "./components/ContactsDatabase";
+import SecurityConsole from "./components/SecurityConsole";
+import TransactionHistory from "./components/TransactionHistory";
+import PriviAuthModal from "./components/PriviAuthModal";
+import { Message, WalletState, Contact, Transaction, SecurityConfig } from "./types";
+
+export default function App() {
+  const [wallet, setWallet] = useState<WalletState>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("arc_wallet_session");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          // ignore parsing error
+        }
+      }
+    }
+    return {
+      address: "0x2C4d06AdfC8A058229F64C051db55c2CC888f4B0",
+      balance: 350.00,
+      privateKey: "0x9d4b...4f7a",
+      seedPhrase: "",
+      isConnected: false
+    };
+  });
+
+  // Keep localStorage updated upon any wallet changes (e.g. balance, faucet)
+  useEffect(() => {
+    if (wallet && wallet.isConnected) {
+      localStorage.setItem("arc_wallet_session", JSON.stringify(wallet));
+    } else {
+      localStorage.removeItem("arc_wallet_session");
+    }
+  }, [wallet]);
+
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: "m-init-1",
+      sender: "agent",
+      text: "Secure session initialized. Hello, I am your ARC COMPANION. I specialize in secure, natural-language USDC transactions. Try telling me: 'Send 10 USDC to Musa for coffee' or ask 'Who is Alice?'",
+      timestamp: new Date().toISOString()
+    }
+  ]);
+  
+  const [inputText, setInputText] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [encryptionLogs, setEncryptionLogs] = useState<string[]>([]);
+  
+  // Active payment draft waiting for confirmation
+  const [activeDraft, setActiveDraft] = useState<Transaction | null>(null);
+  
+  const [securityConfig, setSecurityConfig] = useState<SecurityConfig>({
+    biometricsEnabled: false,
+    encKeyDerived: true,
+    encMethod: "AES-256-GCM / PBKDF2",
+    shieldStatus: "secure"
+  });
+
+  const [biometricSigningInProgress, setBiometricSigningInProgress] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const [scrolled, setScrolled] = useState(false);
+  const [showHeader, setShowHeader] = useState(true);
+  const lastScrollY = useRef(0);
+  const [currentBlock, setCurrentBlock] = useState(741302);
+  const [gwei, setGwei] = useState(0.125);
+  const [activeTab, setActiveTab] = useState<'chat' | 'wallet' | 'transactions' | 'contacts' | 'security'>('chat');
+
+  // Network mode: simulated vs live
+  const [networkMode, setNetworkMode] = useState<'simulated' | 'live'>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("arc_network_mode");
+      if (saved === "live" || saved === "simulated") {
+        return saved;
+      }
+    }
+    return "simulated";
+  });
+
+  const promptAddArcNetwork = async (): Promise<boolean> => {
+    if (typeof window !== "undefined" && (window as any).ethereum) {
+      try {
+        const verifyChainIdBefore = await (window as any).ethereum.request({ method: 'eth_chainId' });
+        const checkIsArcChain = (id: string) => id && (
+          id.toLowerCase() === "0x4cef52" || 
+          id === "5042002" || 
+          id.toLowerCase() === "0x04cef52"
+        );
+        if (checkIsArcChain(verifyChainIdBefore)) {
+          return true;
+        }
+
+        try {
+          await (window as any).ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: "0x4cef52" }], // 5042002 in hex
+          });
+          addSecurityLog("Prompted wallet extension to switch to Arc Testnet (5042002).");
+        } catch (switchError: any) {
+          if (switchError.code === 4902) {
+            try {
+              await (window as any).ethereum.request({
+                method: "wallet_addEthereumChain",
+                params: [
+                  {
+                    chainId: "0x4cef52",
+                    chainName: "Arc Testnet",
+                    nativeCurrency: {
+                      name: "USDC",
+                      symbol: "USDC",
+                      decimals: 18,
+                    },
+                    rpcUrls: ["https://rpc.testnet.arc.network"],
+                    blockExplorerUrls: ["https://testnet.arcscan.app"],
+                  },
+                ],
+              });
+              addSecurityLog("Broadcasted Arc Testnet parameters payload. Network added.");
+            } catch (addError) {
+              console.error("Could not add Arc Testnet to extension wallet:", addError);
+              return false;
+            }
+          } else {
+            console.error("Could not switch Arc Testnet:", switchError);
+            return false;
+          }
+        }
+
+        const verifyChainIdAfter = await (window as any).ethereum.request({ method: 'eth_chainId' });
+        return checkIsArcChain(verifyChainIdAfter);
+      } catch (err) {
+        console.error("Error during chain validation:", err);
+        return false;
+      }
+    }
+    return false;
+  };
+
+  // Sync mode state and trigger updates
+  useEffect(() => {
+    localStorage.setItem("arc_network_mode", networkMode);
+    
+    // sync back to server-side router
+    const syncMode = async () => {
+      try {
+        await fetch("/api/wallet/mode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: networkMode })
+        });
+        await fetchWallet(wallet.address);
+      } catch (err) {
+        console.error("Error updating active network mode:", err);
+      }
+    };
+    syncMode();
+  }, [networkMode]);
+
+  // Account change listeners for injected wallet MetaMask
+  useEffect(() => {
+    if (typeof window !== "undefined" && (window as any).ethereum) {
+      const handleAccounts = async (accounts: string[]) => {
+        if (accounts.length > 0 && wallet.privateKey === "WalletConnect Enclave") {
+          addSecurityLog(`Detected extension account shift: ${accounts[0]}`);
+          const updatedWallet = {
+            ...wallet,
+            address: accounts[0]
+          };
+          setWallet(updatedWallet);
+          localStorage.setItem("arc_wallet_session", JSON.stringify(updatedWallet));
+          try {
+            await fetch("/api/wallet/auth", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(updatedWallet)
+            });
+            await fetchWallet(updatedWallet.address);
+          } catch (e) {}
+        }
+      };
+      
+      const provider = (window as any).ethereum;
+      provider.on('accountsChanged', handleAccounts);
+      return () => {
+        provider.removeListener('accountsChanged', handleAccounts);
+      };
+    }
+  }, [wallet]);
+
+  // Scroll listener and block incrementer to show flowing trace
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      
+      if (currentScrollY > 15) {
+        setScrolled(true);
+      } else {
+        setScrolled(false);
+      }
+
+      // Hide or show header based on scroll direction
+      if (currentScrollY <= 0) {
+        setShowHeader(true);
+      } else if (currentScrollY > lastScrollY.current) {
+        setShowHeader(false); // scrolling down slightly: disappear immediately
+      } else if (currentScrollY < lastScrollY.current) {
+        setShowHeader(true); // scrolling up: show immediately
+      }
+      
+      lastScrollY.current = currentScrollY;
+    };
+    window.addEventListener("scroll", handleScroll);
+
+    const interval = setInterval(() => {
+      setCurrentBlock(prev => prev + 1);
+      setGwei(prev => {
+        const delta = (Math.random() - 0.5) * 0.03;
+        const next = parseFloat((prev + delta).toFixed(3));
+        return Math.max(0.05, Math.min(0.25, next));
+      });
+    }, 4500);
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Fetch initial state
+  useEffect(() => {
+    const initializeRuntimeSession = async () => {
+      let savedSession = null;
+      if (typeof window !== "undefined") {
+        const saved = localStorage.getItem("arc_wallet_session");
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (parsed && parsed.isConnected) {
+              savedSession = parsed;
+            }
+          } catch (e) {}
+        }
+      }
+
+      if (savedSession) {
+        addSecurityLog(`Securing node session from local sandbox parameters: ${savedSession.address.slice(0, 10)}...`);
+        try {
+          await fetch("/api/wallet/auth", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(savedSession)
+          });
+        } catch (e) {
+          console.error("Session sync rejected:", e);
+        }
+      }
+
+      await fetchWallet(savedSession?.address);
+      await fetchContacts();
+      await fetchTransactions(savedSession?.address);
+      
+      addSecurityLog("System hardware tunnel initialized on Arc Testnet Node #289.");
+      addSecurityLog("Asymmetric public keys generated and binded keypair in sandbox.");
+    };
+
+    initializeRuntimeSession();
+  }, []);
+
+  // Scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isProcessing]);
+
+  // Utility to write down logs
+  const addSecurityLog = (text: string) => {
+    const time = new Date().toLocaleTimeString();
+    setEncryptionLogs(prev => [`[${time}] ${text}`, ...prev.slice(0, 40)]);
+  };
+
+  const handleLoginSuccess = async (newWallet: WalletState, secureLogs: string[], userEmail?: string) => {
+    setWallet(newWallet);
+    localStorage.setItem("arc_wallet_session", JSON.stringify(newWallet));
+    
+    // Sync backend wallet state
+    try {
+      await fetch("/api/wallet/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newWallet,
+          email: userEmail
+        })
+      });
+      
+      // Update local ledger items to align with updated wallet address/balance
+      await fetchWallet(newWallet.address);
+      await fetchTransactions(newWallet.address);
+    } catch (err) {
+      console.error("Error synchronizing dynamic wallet state:", err);
+    }
+
+    secureLogs.forEach(log => addSecurityLog(log));
+    
+    const isExtension = newWallet.privateKey === "WalletConnect Enclave" || newWallet.privateKey === "Hardware/Extension Key";
+    if (isExtension) {
+      addSecurityLog("Injected extension session active. Triggering automatic connection switch to Arc Testnet...");
+      await promptAddArcNetwork();
+    } else {
+      addSecurityLog("Secure handshake finalized.");
+    }
+  };
+
+  const handleLogOut = async () => {
+    triggerSynthBeep(300, 150, "fail");
+    
+    const disconnectedWallet: WalletState = {
+      address: "0x2C4d06AdfC8A058229F64C051db55c2CC888f4B0",
+      balance: 350.00,
+      privateKey: "0x9d4b...4f7a",
+      seedPhrase: "",
+      isConnected: false
+    };
+
+    setWallet(disconnectedWallet);
+    localStorage.removeItem("arc_wallet_session");
+
+    // Sync disconnected state back to server
+    try {
+      await fetch("/api/wallet/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(disconnectedWallet)
+      });
+    } catch (err) {
+      console.error("Error setting disconnected state on server:", err);
+    }
+
+    addSecurityLog("Enclave session severed by operator. Relocked environment.");
+  };
+
+  const fetchWallet = async (addressOverride?: string) => {
+    try {
+      const queryAddress = addressOverride || wallet.address;
+      const res = await fetch(`/api/wallet?address=${encodeURIComponent(queryAddress)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setWallet(data);
+      }
+    } catch (err) {
+      console.error("Error fetching wallet:", err);
+    }
+  };
+
+  const fetchContacts = async () => {
+    try {
+      const res = await fetch("/api/contacts");
+      if (res.ok) {
+        const data = await res.json();
+        setContacts(data);
+      }
+    } catch (err) {
+      console.error("Error fetching contacts:", err);
+    }
+  };
+
+  const fetchTransactions = async (addressOverride?: string) => {
+    try {
+      const queryAddress = addressOverride || wallet.address;
+      const res = await fetch(`/api/transactions?address=${encodeURIComponent(queryAddress)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTransactions(data);
+      }
+    } catch (err) {
+      console.error("Error fetching transactions:", err);
+    }
+  };
+
+  const handleFaucet = async () => {
+    try {
+      const res = await fetch("/api/wallet/faucet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: wallet.address })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        addSecurityLog(`Injected gas-free test assets: +100.00 USDC.`);
+        await fetchWallet(wallet.address);
+        triggerSynthBeep(450, 900, "success");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAddContact = async (name: string, address: string, note: string) => {
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, address, note })
+      });
+      if (res.ok) {
+        addSecurityLog(`Cryptographically saved contact info for "${name}". Mapped to ${address.slice(0, 10)}...`);
+        triggerSynthBeep(600, 800, "neutral");
+        await fetchContacts();
+      } else {
+        throw new Error("Target address bind rejected by server");
+      }
+    } catch (err: any) {
+      addSecurityLog(`Secure store failure: ${err.message}`);
+      throw err;
+    }
+  };
+
+  const triggerSynthBeep = (startFreq: number, endFreq: number, type: 'success' | 'fail' | 'neutral') => {
+    if (typeof window !== "undefined" && window.AudioContext) {
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        
+        osc.frequency.setValueAtTime(startFreq, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(endFreq, audioCtx.currentTime + 0.25);
+        
+        gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+        
+        if (type === 'success') {
+          // Double chime chord
+          const osc2 = audioCtx.createOscillator();
+          const gain2 = audioCtx.createGain();
+          osc2.connect(gain2);
+          gain2.connect(audioCtx.destination);
+          
+          osc2.frequency.setValueAtTime(startFreq * 1.5, audioCtx.currentTime);
+          osc2.frequency.setValueAtTime(endFreq * 1.5, audioCtx.currentTime + 0.1);
+          gain2.gain.setValueAtTime(0.04, audioCtx.currentTime);
+          gain2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+          
+          osc2.start();
+          osc2.stop(audioCtx.currentTime + 0.3);
+        }
+        
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.25);
+      } catch (e) {}
+    }
+  };
+
+  const handleToggleBiometrics = () => {
+    setSecurityConfig(prev => {
+      const updated = !prev.biometricsEnabled;
+      addSecurityLog(`WebAuthn Signature Shield ${updated ? "Armed" : "Disarmed"}.`);
+      return {
+        ...prev,
+        biometricsEnabled: updated
+      };
+    });
+    triggerSynthBeep(350, 550, "neutral");
+  };
+
+  // Pre-fill prompt when user selects a contact
+  const handleSelectContact = (name: string) => {
+    setInputText(`Send 10 USDC to ${name} for rent contribution`);
+    triggerSynthBeep(500, 600, "neutral");
+    setActiveTab("chat"); // Auto-switch context to chat screen with the text filled
+  };
+
+  // Submit chat query
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputText.trim() || isProcessing) return;
+
+    const userMessageText = inputText.trim();
+    setInputText("");
+
+    // Add User Message
+    const userMsg: Message = {
+      id: `m-user-${Date.now()}`,
+      sender: "user",
+      text: userMessageText,
+      timestamp: new Date().toISOString()
+    };
+    setMessages(prev => [...prev, userMsg]);
+    setIsProcessing(true);
+    addSecurityLog(`Received natural language command: "${userMessageText}"`);
+
+    try {
+      const res = await fetch("/api/parse-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: userMessageText })
+      });
+
+      if (!res.ok) {
+        throw new Error("Intent parsing channel failure.");
+      }
+
+      const intent = await res.json();
+      addSecurityLog(`Gemini intent categorization result action: [${intent.action.toUpperCase()}]`);
+
+      // Mock processing wait to give smooth tactile flow
+      setTimeout(() => {
+        let agentMessageText = intent.responseMessage || "I parsed your query but couldn't structure a payment intent.";
+        
+        // Check if send action is requested
+        if (intent.action === "send" && intent.amount > 0) {
+          if (!intent.recipientAddress) {
+            // Recipient address not resolved (Musa needs address binding or unknown target)
+            agentMessageText = `I processed your request to transfer ${intent.amount} USDC to "${intent.recipient}", but I could not resolve their address in your secure memories directory. Let's bind an address or specify the 0x address in your request.`;
+            
+            const agentResponse: Message = {
+              id: `m-agent-${Date.now()}`,
+              sender: "agent",
+              text: agentMessageText,
+              timestamp: new Date().toISOString(),
+              status: "failed",
+              intent
+            };
+            setMessages(prev => [...prev, agentResponse]);
+            setIsProcessing(false);
+            triggerSynthBeep(250, 150, "fail");
+            return;
+          }
+
+          // Address is resolved - Create Draft Transaction
+          const draftTx: Transaction = {
+            id: `tx-draft-${Date.now()}`,
+            txHash: "",
+            fromAddress: wallet.address,
+            toName: intent.recipient,
+            toAddress: intent.recipientAddress,
+            amount: intent.amount,
+            token: intent.token || "USDC",
+            note: intent.note || "Digital agents escrow payment",
+            status: "draft",
+            timestamp: new Date().toISOString()
+          };
+
+          // Hold the current active draft
+          setActiveDraft(draftTx);
+
+          const agentResponse: Message = {
+            id: `m-agent-${Date.now()}`,
+            sender: "agent",
+            text: agentMessageText,
+            timestamp: new Date().toISOString(),
+            status: "confirming",
+            intent,
+            transaction: draftTx
+          };
+
+          setMessages(prev => [...prev, agentResponse]);
+          triggerSynthBeep(520, 800, "neutral");
+        } else {
+          // Non-transfer response or unknown
+          const agentResponse: Message = {
+            id: `m-agent-${Date.now()}`,
+            sender: "agent",
+            text: agentMessageText,
+            timestamp: new Date().toISOString(),
+            status: "completed",
+            intent
+          };
+          setMessages(prev => [...prev, agentResponse]);
+          triggerSynthBeep(500, 680, "neutral");
+        }
+        setIsProcessing(false);
+      }, 900);
+
+    } catch (err: any) {
+      console.error(err);
+      setIsProcessing(false);
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `m-agent-err-${Date.now()}`,
+          sender: "agent",
+          text: `An error occurred while securely communicating with the cryptographic AI processor: ${err.message}`,
+          timestamp: new Date().toISOString(),
+          status: "failed"
+        }
+      ]);
+      triggerSynthBeep(200, 100, "fail");
+    }
+  };
+
+  // User confirms the draft transaction
+  const executeConfirmedTransaction = async (draft: Transaction) => {
+    setActiveDraft(null);
+    
+    // If biometrics are enabled, do biometric signature step
+    if (securityConfig.biometricsEnabled) {
+      setBiometricSigningInProgress(true);
+      addSecurityLog("Prompting WebAuthn Biometric TouchID validation...");
+      
+      // Simulate fingerprint scans
+      triggerSynthBeep(380, 500, "neutral");
+      
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      setBiometricSigningInProgress(false);
+      addSecurityLog("Biometric Signature validated successfully in Secure Enclave.");
+    }
+
+    addSecurityLog(`Deploying authorized transaction stream to Arc: ${draft.amount} USDC to ${draft.toName}`);
+    
+    // Push temporary signing messages
+    const processingMsgId = `m-signing-${Date.now()}`;
+    setMessages(prev => [
+      ...prev,
+      {
+        id: processingMsgId,
+        sender: "agent",
+        text: `Signing and broadcasting transaction package. Please wait...`,
+        timestamp: new Date().toISOString(),
+        status: "processing"
+      }
+    ]);
+
+    try {
+      let executionData;
+
+       // If we are on live network mode with MetaMask provider, sign and broadcast via extension
+      const isExtensionWallet = wallet.privateKey === "WalletConnect Enclave" || wallet.privateKey === "Hardware/Extension Key" || wallet.privateKey === "Privy Secure Enclave";
+      if (networkMode === "live" && isExtensionWallet) {
+        if (typeof window !== "undefined" && (window as any).ethereum) {
+          addSecurityLog("Validating Arc Testnet connectivity...");
+          
+          const isCorrectChain = await promptAddArcNetwork();
+          if (!isCorrectChain) {
+            throw new Error("Transaction cancelled: Connection switch to Arc Testnet (5042002) was denied or failed. Please switch your extension wallet's network to Arc Testnet to sign and settle this on-chain transaction.");
+          }
+
+          addSecurityLog("Arc Testnet connection verified. Prompting browser extension wallet to sign native USDC transfer...");
+          const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
+          const fromAddr = accounts[0];
+          
+          // Arc native fee token is USDC. Native transfers represent USDC balance of chain.
+          // 18 decimals native token format
+          const hexAmount = "0x" + (BigInt(Math.floor(draft.amount * 1e18))).toString(16);
+          
+          const rawHash = await (window as any).ethereum.request({
+            target: "0x4cef52",
+            method: 'eth_sendTransaction',
+            params: [
+              {
+                from: fromAddr,
+                to: draft.toAddress,
+                value: hexAmount,
+              },
+            ],
+          });
+          
+          addSecurityLog(`Extension signing successful. Broadcasted Tx Hash: ${rawHash}`);
+          
+          // Log is transmitted to server-side transactions records with overrideTxHash
+          const res = await fetch("/api/transaction/execute", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              toName: draft.toName,
+              toAddress: draft.toAddress,
+              amount: draft.amount,
+              note: draft.note,
+              token: draft.token,
+              overrideTxHash: rawHash,
+              fromAddress: wallet.address
+            })
+          });
+          
+          if (!res.ok) {
+            throw new Error("Failed to serialize external transaction ledger on server.");
+          }
+          
+          executionData = await res.json();
+        } else {
+          throw new Error("No browser extension wallet (like MetaMask) detected inside this tab context. Please restore/import an account to create secure on-chain credentials or switch to Simulated Sandbox mode.");
+        }
+      } else {
+        // Option B: Post standard payload to server. Express handles either simulated sandbox or onchain live wallet transfers.
+        const res = await fetch("/api/transaction/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            toName: draft.toName,
+            toAddress: draft.toAddress,
+            amount: draft.amount,
+            note: draft.note,
+            token: draft.token,
+            fromAddress: wallet.address
+          })
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Execution failed on chain broker.");
+        }
+
+        executionData = await res.json();
+      }
+
+      addSecurityLog(`Consensus finalized. Hash: ${executionData.hash}`);
+
+      // Update local wallet view and state
+      await fetchWallet(wallet.address);
+      await fetchTransactions(wallet.address);
+
+      // Trigger standard physical haptic feedback loop simulator sound
+      triggerSynthBeep(520, 1040, "success");
+
+      // Replace or update messages list
+      setMessages(prev => {
+        // Remove the temporary broadcast text
+        const cleaned = prev.filter(m => m.id !== processingMsgId);
+        return [
+          ...cleaned,
+          {
+            id: `m-success-${Date.now()}`,
+            sender: "agent",
+            text: networkMode === "live" 
+              ? `Real on-chain transaction completed successfully on Arc Testnet! I have broadcasted and tracked your transfer of $${draft.amount.toFixed(2)} ${draft.token} to ${draft.toName}.`
+              : `Simulated transaction executed inside sandbox! Mapped local transfer of $${draft.amount.toFixed(2)} ${draft.token} to ${draft.toName}.`,
+            timestamp: new Date().toISOString(),
+            status: "completed",
+            transaction: executionData.transaction
+          }
+        ];
+      });
+
+    } catch (err: any) {
+      console.error(err);
+      addSecurityLog(`Signing abort: ${err.message}`);
+      triggerSynthBeep(260, 130, "fail");
+      
+      setMessages(prev => {
+        const cleaned = prev.filter(m => m.id !== processingMsgId);
+        return [
+          ...cleaned,
+          {
+            id: `m-fail-${Date.now()}`,
+            sender: "agent",
+            text: `Transaction aborted: ${err.message}`,
+            timestamp: new Date().toISOString(),
+            status: "failed"
+          }
+        ];
+      });
+    }
+  };
+
+  const cancelTransactionDraft = () => {
+    setActiveDraft(null);
+    addSecurityLog("Draft transaction rejected and purged from hardware scratchpad.");
+    triggerSynthBeep(300, 200, "fail");
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `m-cancel-${Date.now()}`,
+        sender: "agent",
+        text: "Transaction draft cancelled by the operator.",
+        timestamp: new Date().toISOString(),
+        status: "failed"
+      }
+    ]);
+  };
+
+  return (
+    <div id="ai-money-agent-app" className="h-screen max-h-screen overflow-hidden bg-slate-100/90 text-slate-900 flex flex-col font-sans selection:bg-slate-300 selection:text-slate-900">
+      
+      {/* Top Floating Header Rail */}
+      <div className={`shrink-0 sticky top-0 z-50 w-full px-4 pt-4 sm:px-6 transition-all duration-300 ease-in-out ${
+        showHeader ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0 pointer-events-none"
+      }`}>
+        <motion.header 
+          id="agent-main-header" 
+          className={`mx-auto max-w-7xl transition-all duration-300 flex items-center justify-between rounded-2xl border relative overflow-hidden ${
+            scrolled 
+              ? "bg-white/95 backdrop-blur-md px-6 py-2.5 border-slate-300 shadow-md" 
+              : "bg-white px-6 py-4 border-slate-300 shadow-sm"
+          }`}
+          layout
+        >
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-slate-900 via-slate-800 to-slate-950 p-[1.5px] flex items-center justify-center shadow-md shadow-blue-500/5 ring-1 ring-white/10 hover:scale-[1.03] transition-transform duration-300">
+              <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/10 via-transparent to-transparent opacity-60" />
+                <Bot className="w-5.5 h-5.5 text-blue-400 relative z-10 animate-pulse drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]" />
+              </div>
+            </div>
+          </div>
+
+          <div className="text-left">
+            <h1 className="text-xs font-bold font-display tracking-wider text-slate-900 uppercase">ARC COMPANION</h1>
+            <p className="text-[8.5px] font-mono text-slate-500 lowercase tracking-wider flex items-center gap-1.5 mt-0.5">
+              <span>arc. native. wallet. finance.</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Diagnostic Status indicators showing Live Flow & Sign Out Option */}
+        <div id="header-right-controls" className="flex items-center gap-2.5">
+          {/* Network Selector Pill */}
+          <div className="bg-slate-100 border border-slate-300 rounded-lg p-[2px] flex items-center text-slate-600 select-none">
+            <button
+              onClick={() => setNetworkMode("simulated")}
+              className={`px-2 py-0.5 rounded text-[8px] sm:text-[9px] font-mono uppercase font-bold transition-all cursor-pointer ${
+                networkMode === "simulated"
+                  ? "bg-slate-900 text-white shadow-xs"
+                  : "text-slate-500 hover:text-slate-900"
+              }`}
+              title="Use Free Simulated Offline Sandbox"
+            >
+              Sandbox
+            </button>
+            <button
+              onClick={() => {
+                setNetworkMode("live");
+                addSecurityLog("Operator switched network context to Arc Testnet Live.");
+              }}
+              className={`px-2 py-0.5 rounded text-[8px] sm:text-[9px] font-mono uppercase font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                networkMode === "live"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-slate-500 hover:text-blue-600"
+              }`}
+              title="Connect Live Arc Testnet"
+            >
+              {networkMode === "live" && <span className="w-1 h-1 bg-white rounded-full animate-ping" />}
+              Arc Testnet
+            </button>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-2.5 text-[9px] font-mono uppercase">
+            <div className="bg-slate-100 border border-slate-300 rounded px-2.5 py-1 flex items-center gap-1.5 text-slate-600 select-none hover:border-slate-400 transition-colors">
+              <motion.span 
+                className={`w-1.5 h-1.5 rounded-full ${networkMode === "live" ? "bg-emerald-500 animate-pulse" : "bg-blue-500"}`}
+                animate={networkMode === "live" ? undefined : { opacity: [1, 0.4, 1] }}
+                transition={networkMode === "live" ? undefined : { repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+              />
+              <span className="text-slate-500">Gas:</span>
+              <span className="text-blue-600 font-bold font-mono">{gwei} GWEI</span>
+            </div>
+          </div>
+
+          {wallet.isConnected && (
+            <button
+              onClick={handleLogOut}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-rose-50 border border-slate-300 hover:border-rose-200 text-slate-600 hover:text-rose-600 rounded-xl text-[10px] font-mono uppercase tracking-wider font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="Secure Logout Session"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Sign Out</span>
+            </button>
+          )}
+        </div>
+
+        {/* Animated Live Block Flow Trace */}
+        <div className="absolute bottom-0 left-0 right-0 h-[1.5px] bg-slate-200 overflow-hidden">
+          <motion.div 
+            className="h-full w-2/5 bg-gradient-to-r from-transparent via-blue-500/80 to-transparent"
+            animate={{ x: ["-100%", "250%"] }}
+            transition={{ repeat: Infinity, duration: 4.5, ease: "linear" }}
+          />
+        </div>
+      </motion.header>
+    </div>
+
+      {/* Dynamic Navigation Tabs System */}
+      <div className="w-full max-w-7xl mx-auto px-4 mt-2.5 shrink-0">
+        <div id="enclave-tabs-bar" className="grid grid-cols-5 items-stretch bg-white border border-slate-300 p-1 rounded-xl shadow-xs gap-1 md:gap-1.5 select-none w-full">
+          {[
+            { id: 'chat' as const, label: 'Chat', icon: Bot },
+            { id: 'wallet' as const, label: 'Wallet', icon: Wallet },
+            { id: 'transactions' as const, label: 'History', icon: History },
+            { id: 'contacts' as const, label: 'Profiles', icon: User },
+            { id: 'security' as const, label: 'Security', icon: Shield },
+          ].map((tab, idx) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  triggerSynthBeep(450 + (idx * 35), 550 + (idx * 35), "neutral");
+                }}
+                className={`py-1.5 px-0.5 sm:py-2.5 sm:px-3 text-xs font-bold font-sans transition-all duration-200 cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 relative w-full text-center ${
+                  isActive
+                    ? "text-white font-bold"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                }`}
+              >
+                {isActive && (
+                  <motion.div
+                    layoutId="activeTabOutline"
+                    className="absolute inset-0 bg-slate-900 rounded-lg -z-10"
+                    transition={{ type: "spring", stiffness: 400, damping: 33 }}
+                  />
+                )}
+                <Icon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 transition-all ${isActive ? "text-blue-400 scale-105" : "text-slate-450"}`} />
+                <span className="text-[9px] sm:text-[10.5px] tracking-tight uppercase font-bold whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
+                  {tab.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Main Container */}
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-2.5 flex flex-col items-center justify-start overflow-hidden min-h-0">
+        <div className="w-full max-w-6xl flex-1 flex flex-col overflow-hidden min-h-0">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.18, ease: "easeInOut" }}
+              className="w-full flex-1 flex flex-col overflow-hidden min-h-0"
+            >
+              {activeTab === "chat" && (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-full w-full min-h-0 flex-1">
+                  <section id="chat-interactive-console" className="lg:col-span-8 flex flex-col bg-white border border-slate-300 rounded-2xl overflow-hidden shadow-sm relative h-full flex-1 min-h-0 w-full">
+                  
+                  {/* Top Info Header */}
+                  <div className="bg-slate-100 border-b border-slate-300 px-4 py-1.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-left">
+                      <Zap className="w-3.5 h-3.5 text-slate-850 animate-pulse" />
+                      <span className="text-[10px] font-bold text-slate-900 font-sans uppercase tracking-wider">Intent-Based AI Engine</span>
+                    </div>
+                    
+                    <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-slate-300 text-[9px] font-mono text-slate-600">
+                      <span>gemini-2.5 agent brain</span>
+                    </div>
+                  </div>
+
+                  {/* Messages Stream Wrapper */}
+                  <div className="flex-1 overflow-y-auto p-2 py-1.5 space-y-1.5 no-scrollbar">
+                    {messages.map((msg) => {
+                      const isUser = msg.sender === "user";
+                      return (
+                        <div 
+                          key={msg.id} 
+                          className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+                        >
+                          <div className={`max-w-[90%] flex gap-1.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+                            
+                            {/* Speaker icon */}
+                            <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 border text-[8px] uppercase font-mono ${
+                              isUser 
+                                ? "bg-slate-200 text-slate-800 border-slate-300" 
+                                : "bg-slate-900 text-white border-transparent"
+                            }`}>
+                              {isUser ? <span>U</span> : <Bot className="w-2.5 h-2.5" />}
+                            </div>
+
+                            {/* Speech box bubble */}
+                            <div className="text-left flex flex-col items-start max-w-full">
+                              <div className={`py-1 px-2.5 rounded-xl text-xs leading-normal relative w-full ${
+                                isUser 
+                                  ? "bg-slate-200 text-slate-950 border border-slate-300/80 rounded-tr-none" 
+                                  : "bg-slate-50 text-slate-900 border border-slate-200/90 rounded-tl-none font-sans"
+                              }`}>
+                                <div className="flex flex-col">
+                                  <div className="text-[11px] leading-normal break-words">{msg.text}</div>
+                                  <div className="text-right text-[7.5px] font-mono text-slate-400 select-none uppercase tracking-wider mt-0.5 leading-none">
+                                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </div>
+                                </div>
+
+                                {/* Interactive UI Draft Transaction Confirm Card inline */}
+                                {msg.transaction && msg.status === "confirming" && (
+                                  <div className="mt-2 p-2.5 rounded-lg bg-white border border-slate-300 text-slate-900 space-y-2 font-sans">
+                                    <div className="flex items-center justify-between border-b border-slate-200 pb-1 flex-wrap gap-1.5">
+                                      <span className="text-[9px] font-bold font-sans text-slate-900 uppercase tracking-wider flex items-center gap-1">
+                                        <AlertTriangle className="w-3 h-3 text-amber-600" /> Confirm payment request
+                                      </span>
+                                      <span className="text-[8px] font-mono text-slate-500 uppercase">Arc gasless</span>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                      <div>
+                                        <span className="text-slate-400 font-mono text-[8px] uppercase tracking-wider">Recipient</span>
+                                        <div className="font-bold text-slate-900 mt-0.5">{msg.transaction.toName}</div>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400 font-mono text-[8px] uppercase tracking-wider">Address</span>
+                                        <div className="font-mono text-slate-650 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 text-[8.5px] mt-0.5 truncate">
+                                          {msg.transaction.toAddress}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400 font-mono text-[8px] uppercase tracking-wider">Amount</span>
+                                        <div className="font-bold text-slate-950 text-xs mt-0.5">
+                                          {msg.transaction.amount} {msg.transaction.token}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400 font-mono text-[8px] uppercase tracking-wider">Context Memo</span>
+                                        <div className="italic text-slate-650 mt-0.5 truncate font-sans text-[8.5px]">{msg.transaction.note || "N/A"}</div>
+                                      </div>
+                                    </div>
+
+                                    {/* Actions block */}
+                                    {activeDraft && activeDraft.id === msg.transaction.id ? (
+                                      <div className="flex gap-2 pt-1 pb-0.5">
+                                        <button
+                                          onClick={() => executeConfirmedTransaction(msg.transaction!)}
+                                          className="flex-1 bg-slate-900 text-white font-bold font-sans text-[10px] py-1 rounded hover:bg-slate-800 active:scale-[0.99] transition cursor-pointer shadow-3xs"
+                                        >
+                                          {securityConfig.biometricsEnabled ? "Approve" : "Sign & Send USDC"}
+                                        </button>
+                                        <button
+                                          onClick={cancelTransactionDraft}
+                                          className="px-2 bg-slate-200 border border-slate-300 hover:bg-slate-250 text-slate-700 font-bold font-sans text-[10px] rounded transition"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="text-[8.5px] text-slate-400 uppercase font-mono tracking-wider pt-0.5 italic text-center">
+                                        Outdated signature session.
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Interactive UI Success Transaction Details inline */}
+                                {msg.transaction && msg.status === "completed" && (
+                                  <div className="mt-2 p-2 rounded-lg bg-emerald-50/50 border border-emerald-200 text-slate-900 space-y-1 font-mono text-[10px]">
+                                    <div className="flex items-center gap-1 text-emerald-800 font-sans font-bold text-xs uppercase tracking-wider">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                      <span>Transfer completed</span>
+                                    </div>
+
+                                    <div className="space-y-0.5 mt-1 text-[9px] text-slate-700">
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-400 font-sans">Payment sum:</span>
+                                        <span className="text-slate-900 font-bold">{msg.transaction.amount} USDC</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-400 font-sans">Target Profile:</span>
+                                        <span className="text-slate-900">{msg.transaction.toName}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-400 font-sans">Address:</span>
+                                        <span className="text-slate-650">{msg.transaction.toAddress.slice(0, 6)}...{msg.transaction.toAddress.slice(-4)}</span>
+                                      </div>
+                                    </div>
+
+                                    <div className="pt-1 border-t border-emerald-100">
+                                      <a
+                                        href={`https://testnet.arcscan.app/tx/${msg.transaction.txHash}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[8px] text-slate-600 hover:underline flex items-center gap-1 mt-0.5 break-all font-mono"
+                                      >
+                                        <span>Hash: {msg.transaction.txHash.slice(0, 16)}...</span>
+                                        <ExternalLink className="w-2 h-2 shrink-0" />
+                                      </a>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Spinner loading state */}
+                    {isProcessing && (
+                      <div className="flex justify-start">
+                        <div className="max-w-[85%] flex gap-2.5">
+                          <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-slate-200 border border-slate-300 text-slate-650">
+                            <Bot className="w-3.5 h-3.5 animate-spin" />
+                          </div>
+                          <div className="space-y-1 text-left">
+                            <div className="px-3 py-1.5 bg-slate-100/90 text-slate-600 border border-slate-300 rounded-xl rounded-tl-none font-sans text-xs flex items-center gap-2">
+                              <span className="w-1 h-1 bg-slate-500 rounded-full animate-ping" />
+                              <span>Evaluating request intent...</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Simulated overlay prompt during active WebAuthn simulated biometric block */}
+                    {biometricSigningInProgress && (
+                      <div className="absolute inset-0 bg-white/95 backdrop-blur-md flex flex-col items-center justify-center z-40 p-6 text-center">
+                        <div className="relative mb-5">
+                          <div className="w-16 h-16 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center animate-pulse" />
+                          <Fingerprint className="w-8 h-8 text-slate-900 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
+                        </div>
+                        <h3 className="text-sm font-bold font-display uppercase tracking-wider text-slate-900">Signature Required</h3>
+                        <p className="text-xs text-slate-500 mt-2 max-w-[300px] leading-relaxed mx-auto">
+                          Arc Shield is querying your hardware authenticator. Please place your finger on the reader or press Sim TouchID button in security module.
+                        </p>
+                        <div className="mt-4 px-3 py-1 bg-slate-150 border border-slate-300 text-[9px] font-mono text-slate-750 rounded">
+                          SHA256_assertion_verify_session
+                        </div>
+                      </div>
+                    )}
+
+                    <div ref={chatEndRef} />
+                  </div>
+
+                  {/* Quick-suggestion panel for fast testing */}
+                  <div className="px-4 py-1.5 border-t border-slate-300 bg-slate-100 flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap text-left">
+                    <span className="text-[9px] font-mono text-slate-450 uppercase tracking-wider mr-1.5 shrink-0">Quick Options:</span>
+                    <button
+                      onClick={() => handleSelectContact("Musa")}
+                      className="text-[9.5px] bg-white border border-slate-300 px-2 py-0.5 text-slate-700 hover:text-slate-900 hover:border-slate-400 rounded transition cursor-pointer"
+                    >
+                      "Send 10 USDC to Musa"
+                    </button>
+                    <button
+                      onClick={() => setInputText("Send 50 USDC to Alice for lunch contribution")}
+                      className="text-[9.5px] bg-white border border-slate-300 px-2 py-0.5 text-slate-700 hover:text-slate-900 hover:border-slate-400 rounded transition cursor-pointer"
+                    >
+                      "Send 50 USDC to Alice"
+                    </button>
+                    <button
+                      onClick={() => setInputText("Who is Bob?")}
+                      className="text-[9.5px] bg-white border border-slate-300 px-2 py-0.5 text-slate-700 hover:text-slate-900 hover:border-slate-400 rounded transition cursor-pointer"
+                    >
+                      "Who is Bob?"
+                    </button>
+                  </div>
+
+                  {/* Chat Form Input */}
+                  <form onSubmit={handleSendMessage} className="p-2 bg-white border-t border-slate-200 flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. Send 10 USDC to Musa"
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      disabled={isProcessing}
+                      className="flex-1 px-3 py-1.5 bg-slate-100 border border-slate-300 text-xs text-slate-900 rounded-lg focus:outline-none focus:border-slate-800 focus:bg-white font-sans disabled:opacity-50 placeholder:text-slate-400 text-left"
+                    />
+                    
+                    <button
+                      type="submit"
+                      disabled={isProcessing || !inputText.trim()}
+                      className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-850 text-white rounded-lg text-xs font-semibold font-sans transition flex items-center gap-1.5 active:scale-[0.99] disabled:opacity-40 cursor-pointer shadow-xs"
+                      title="Submit command to agent"
+                    >
+                      <span>Execute</span>
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  </form>
+                </section>
+
+                {/* Right side Enclave Dashboard Sidebar - showing 3 previous commitments */}
+                <div className="lg:col-span-4 hidden lg:flex flex-col gap-4 h-full min-h-0">
+                  {/* Quick System Health / Hardware Enclave status card */}
+                  <div className="bg-white border border-slate-300 rounded-2xl p-4 shadow-3xs text-left relative overflow-hidden shrink-0">
+                    <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-slate-900" />
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5 text-slate-900 font-bold font-display uppercase text-[10px] tracking-wide">
+                        <Cpu className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Enclave Profile</span>
+                      </div>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    </div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-xl font-bold font-display text-slate-950">${wallet.balance.toFixed(2)}</span>
+                      <span className="text-[9px] font-mono text-slate-500 uppercase">USDC Spot</span>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-600 truncate bg-slate-50 border border-slate-200 rounded px-2 py-1 select-none font-mono">
+                      Proxy: {wallet.address.slice(0, 8)}...{wallet.address.slice(-4)}
+                    </div>
+                    <div className="mt-2.5 pt-2 border-t border-slate-150 flex items-center justify-between text-[10px] font-mono">
+                      <span className="text-slate-400">Security Guard:</span>
+                      <span className="text-emerald-700 font-bold uppercase tracking-wider">Armed (HSM)</span>
+                    </div>
+                  </div>
+
+                  {/* 3 Previous Commitments card */}
+                  <div className="bg-white border border-slate-300 rounded-2xl p-4 shadow-3xs text-left flex-1 flex flex-col min-h-0 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-slate-800" />
+                    <div className="flex items-center justify-between mb-2.5 shrink-0">
+                      <span className="text-[10px] font-bold font-mono uppercase tracking-widest text-slate-550">3 Previous Commitments</span>
+                      <span className="text-[8px] font-mono bg-blue-50 border border-blue-200 text-blue-700 px-1 py-0.2 rounded font-bold uppercase">Sync</span>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto space-y-2.5 pr-0.5 no-scrollbar min-h-0">
+                      {transactions.slice(0, 3).length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-10 text-center text-slate-400">
+                          <History className="w-6 h-6 text-slate-300 stroke-[1.5] mb-1" />
+                          <div className="text-[9px] font-mono uppercase italic">No cryptographic records found</div>
+                        </div>
+                      ) : (
+                        transactions.slice(0, 3).map((tx) => (
+                          <div key={tx.id} className="p-2 border border-slate-200/90 bg-slate-50 rounded-lg text-[10px] space-y-1 hover:bg-slate-100/40 transition duration-100">
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-slate-950 truncate max-w-[100px]">To: {tx.toName}</span>
+                              <span className="font-bold text-slate-950">+{tx.amount.toFixed(1)} USDC</span>
+                            </div>
+                            <div className="flex justify-between text-[8px] text-slate-455 font-mono">
+                              <span>{tx.toAddress.slice(0, 6)}...{tx.toAddress.slice(-4)}</span>
+                              <span className="uppercase text-emerald-705 font-bold">{tx.status}</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    
+                    <button 
+                      onClick={() => setActiveTab("transactions")}
+                      className="w-full text-center text-[9px] uppercase font-mono mt-2.5 text-blue-600 hover:text-blue-800 font-bold tracking-wider hover:underline flex items-center justify-center gap-1 shrink-0 cursor-pointer pt-2 border-t border-slate-150"
+                    >
+                      Launch Cryptographic Ledger →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "wallet" && (
+              <div className="w-full h-full flex-1 min-h-0 flex flex-col justify-center items-center">
+                <div className="max-w-4xl w-full">
+                    <WalletCard 
+                      wallet={wallet} 
+                      onRefresh={fetchWallet} 
+                      onFaucet={handleFaucet} 
+                      networkMode={networkMode}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {activeTab === "transactions" && (
+                <div className="w-full h-full flex-1 min-h-0 flex flex-col">
+                  <TransactionHistory 
+                    transactions={transactions} 
+                    onRefresh={fetchTransactions} 
+                  />
+                </div>
+              )}
+
+              {activeTab === "contacts" && (
+                <div className="w-full h-full flex-1 min-h-0 flex flex-col">
+                  <ContactsDatabase 
+                    contacts={contacts} 
+                    onAddContact={handleAddContact} 
+                    onSelectContact={handleSelectContact} 
+                  />
+                </div>
+              )}
+
+              {activeTab === "security" && (
+                <div className="w-full h-full flex-1 min-h-0 flex flex-col">
+                  <SecurityConsole 
+                    securityConfig={securityConfig} 
+                    onToggleBiometrics={handleToggleBiometrics} 
+                    encryptionLogs={encryptionLogs} 
+                  />
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </main>
+
+      {/* Footer System Band */}
+      <footer id="network-footer-bar" className="mt-auto border-t border-slate-300 bg-white p-4 font-mono text-[9px] text-slate-400 flex flex-col md:flex-row items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-slate-400" />
+          <span>© ARC COMPANION 2026. BY WAZIRI.</span>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <span className="w-1 h-1 bg-emerald-500 rounded-full" />
+            <span>Connection: Secure</span>
+          </div>
+          <span>UTC: {new Date().toISOString().replace('T', ' ').slice(0, 19)}</span>
+          <div className="flex items-center gap-3 border-l border-slate-300 pl-3">
+            <a href="https://x.com" target="_blank" rel="noopener noreferrer" className="hover:text-slate-900 transition-colors" title="Twitter / X">
+              <Twitter className="w-3.5 h-3.5" />
+            </a>
+            <a href="https://t.me" target="_blank" rel="noopener noreferrer" className="hover:text-slate-900 transition-colors" title="Telegram">
+              <Send className="w-3.5 h-3.5 shrink-0 rotate-[-15deg] mt-0.5" />
+            </a>
+          </div>
+        </div>
+      </footer>
+
+      {/* Privi Auth Modal Portal overlay */}
+      {!wallet.isConnected && (
+        <PriviAuthModal 
+          onLoginSuccess={handleLoginSuccess}
+          triggerBeep={triggerSynthBeep}
+        />
+      )}
+    </div>
+  );
+}

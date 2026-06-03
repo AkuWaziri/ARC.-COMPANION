@@ -1,0 +1,15 @@
+# Foundry configuration for Arc Testnet
+# Reference: https://github.com/foundry-rs/foundry/tree/master/crates/config
+
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+
+# Official Arc Testnet RPC endpoints and chain parameters
+[rpc_endpoints]
+arc_testnet = "https://rpc.testnet.arc.network"
+
+# Block Explorer configuration for verification on ArcScan
+[etherscan]
+arc_testnet = { key = "unused", url = "https://testnet.arcscan.app/api" }
