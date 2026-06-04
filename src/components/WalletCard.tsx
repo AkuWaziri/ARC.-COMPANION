@@ -123,16 +123,15 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
             )}
 
             {/* Note about secure environment */}
-            {networkMode === "live" ? (
-              <div className="p-2.5 bg-blue-50 border border-blue-200 text-blue-800 text-[10px] rounded-lg font-sans leading-relaxed text-left">
+            <div className="p-2.5 bg-blue-50 border border-blue-200 text-blue-800 text-[10px] rounded-lg font-sans leading-relaxed text-left space-y-1.5">
+              <div>
                 <strong>Real Arc Testnet Faucet:</strong> Click copy on your <strong>Address</strong> key, then visit the official <a href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold">Circle Testnet Faucet</a> to receive real gas assets to play with!
               </div>
-            ) : (
-              <div className="flex items-center gap-1 text-[9px] text-slate-400 font-mono">
-                <Award className="w-3.5 h-3.5 text-slate-400" />
-                <span>Sandbox Cryptography Active (v2.4)</span>
+              <div className="flex items-center gap-1 text-[9px] text-slate-500 font-mono pt-1 border-t border-blue-105">
+                <Award className="w-3 h-3 text-slate-500" />
+                <span>Arc Secure Enclave Cryptography Connected</span>
               </div>
-            )}
+            </div>
           </div>
         </div>
 

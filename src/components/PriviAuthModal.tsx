@@ -588,32 +588,6 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
     }
   };
 
-  const handleProceedWithSimulation = () => {
-    setConnectPhoneLoading(true);
-    triggerBeep(480, 580, "neutral");
-    
-    setTimeout(() => {
-      setConnectPhoneLoading(false);
-      
-      const seedPhrase = `${selectedWalletName.replace(/\s+/g, "").toLowerCase()} sandbox seed phrase helper validator`;
-      const mockWcWallet: WalletState = {
-        address: "0xC576Ac9Ea5eA4f8A0eB28E64C051db55c2CC5AA2",
-        balance: 280.50,
-        privateKey: "WalletConnect Enclave",
-        seedPhrase: seedPhrase,
-        isConnected: true
-      };
-
-      triggerBeep(520, 1040, "success");
-      const secureLogs = [
-        `WalletConnect session simulated with ${selectedWalletName}.`,
-        `EVM public key verified: ${mockWcWallet.address}`,
-        `Connect your browser wallet directly outside of iframe for full hardware execution.`
-      ];
-      onLoginSuccess(mockWcWallet, secureLogs);
-    }, 1500);
-  };
-
   const copyToClipboard = () => {
     if (generatedWallet) {
       navigator.clipboard.writeText(generatedWallet.seedPhrase);
@@ -761,23 +735,23 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                   </div>
                 </div>
 
-                {/* Right Column: Fast pass OAuth & Sandbox */}
-                <div className="flex flex-col justify-between bg-slate-200 border border-slate-350 rounded-2xl p-4 gap-3.5 md:min-h-[220px]">
-                  <div className="space-y-2">
-                    <span className="text-[8.5px] font-mono uppercase tracking-wider text-slate-500 font-bold block">Instant Credentials</span>
+                {/* Right Column: Fast pass OAuth */}
+                <div className="flex flex-col justify-center bg-slate-200 border border-slate-350 rounded-2xl p-6 gap-4 md:min-h-[220px]">
+                  <div className="space-y-3.5">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">Instant Credentials</span>
                     
                     {/* Grid of Dedicated Trigger Shortcuts */}
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-2">
                       <button
                         onClick={() => {
                           triggerBeep(350, 480, "neutral");
                           setErrorMsg("");
                           setStep('google-email');
                         }}
-                        className="flex items-center justify-center gap-1 px-2.5 py-2 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl transition cursor-pointer shadow-xs"
+                        className="flex items-center justify-center gap-2 px-3 py-2.5 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl transition cursor-pointer shadow-xs"
                       >
-                        <Mail className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                        <span className="text-[9.5px] font-bold text-slate-700">Sign Up With Google or Email</span>
+                        <Mail className="w-4 h-4 text-rose-500 shrink-0" />
+                        <span className="text-xs font-bold text-slate-700">Connect via Secure Email Address</span>
                       </button>
                       <button
                         onClick={() => {
@@ -786,10 +760,10 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                           setStep('wallet-connect');
                           setWalletConnectTab('extension');
                         }}
-                        className="flex items-center justify-center gap-1 px-2.5 py-2 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl transition cursor-pointer shadow-xs"
+                        className="flex items-center justify-center gap-2 px-3 py-2.5 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl transition cursor-pointer shadow-xs"
                       >
-                        <Wallet className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                        <span className="text-[9.5px] font-bold text-slate-700">Web3 Wallets</span>
+                        <Wallet className="w-4 h-4 text-blue-500 shrink-0" />
+                        <span className="text-xs font-bold text-slate-700">Connect Browser Web3 Wallets</span>
                       </button>
                     </div>
 
@@ -800,43 +774,13 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                         setStep('restore-mnemonic');
                         triggerBeep(350, 480, "neutral");
                       }}
-                      className="w-full flex items-center justify-between px-3 py-1.5 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl text-slate-600 hover:text-slate-900 transition cursor-pointer group"
+                      className="w-full flex items-center justify-between px-3 py-2 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl text-slate-600 hover:text-slate-900 transition cursor-pointer group"
                     >
-                      <div className="flex items-center gap-1 text-[8.5px] font-mono uppercase tracking-wider font-bold">
+                      <div className="flex items-center gap-1.5 text-[8.5px] font-mono uppercase tracking-wider font-bold">
                         <Key className="w-3.5 h-3.5 text-slate-500 shrink-0 group-hover:text-amber-500 transition" />
-                        <span>RESTORE WALLET WITH MNEMONIC PHRASE</span>
+                        <span>RESTORE WALLET</span>
                       </div>
                       <ArrowRight className="w-3 h-3 text-slate-500 group-hover:translate-x-0.5 transition" />
-                    </button>
-                  </div>
-
-                  {/* Horizontal Divider */}
-                  <div className="relative flex items-center py-0.5">
-                    <div className="flex-grow border-t border-slate-300"></div>
-                    <span className="flex-shrink mx-2 text-[8px] font-mono uppercase tracking-wider text-slate-550 font-bold">Offline Testing</span>
-                    <div className="flex-grow border-t border-slate-300"></div>
-                  </div>
-
-                  {/* Sandbox / Bypass option buttons */}
-                  <div className="space-y-2">
-                    <button
-                      onClick={() => {
-                        triggerBeep(450, 600, "neutral");
-                        const sandboxWallet = generateNewWalletFromMnemonic();
-                        const secureLogs = [
-                          `Bypassed core auth via Offline Sandbox Workspace environment.`,
-                          `Mock EVM address active: ${sandboxWallet.address}`
-                        ];
-                        onLoginSuccess(sandboxWallet, secureLogs);
-                      }}
-                      className="w-full flex items-center justify-between px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-xl transition cursor-pointer group"
-                      title="Mock offline sandbox bypass"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <Fingerprint className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span className="text-[9px] font-bold text-emerald-800">Use Free Simulated Sandbox Wallet</span>
-                      </div>
-                      <ArrowRight className="w-3 h-3 text-emerald-500 group-hover:translate-x-0.5 transition" />
                     </button>
                   </div>
                 </div>
@@ -923,7 +867,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
               {receivedOtp && (
                 <div className="bg-blue-50 border border-blue-200 text-[#1e3a8a] text-xs rounded-xl p-3 flex items-center justify-between font-sans shadow-2xs">
                   <div className="flex flex-col text-left gap-0.5">
-                    <span className="text-[10px] uppercase font-mono tracking-wider font-bold text-blue-500">Security Sandbox PIN</span>
+                    <span className="text-[10px] uppercase font-mono tracking-wider font-bold text-blue-500">Secure Verification PIN</span>
                     <span className="text-sm font-black font-mono tracking-widest text-[#1e3a8a] bg-blue-100/60 px-2 py-0.5 rounded border border-blue-200/50 w-fit">
                       {receivedOtp}
                     </span>
@@ -1168,7 +1112,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
               {connectPhoneLoading ? (
                 <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
                   <div className="w-8 h-8 rounded-full border-2 border-slate-300 border-t-slate-800 animate-spin" />
-                  <div className="text-xs text-slate-800">Signing into simulated Sandbox...</div>
+                  <div className="text-xs text-slate-800">Initializing secure session keys...</div>
                 </div>
               ) : (
                 <div className="space-y-3 pt-2">
@@ -1178,21 +1122,21 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                     rel="noreferrer"
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition duration-155 font-semibold text-xs text-center shadow-md shadow-blue-500/10 cursor-pointer"
                   >
-                    <span>Launch in New Tab for Real Wallet Connection</span>
+                    <span>Launch in New Tab for MetaMask Extension Connection</span>
                     <ArrowRight className="w-4 h-4" />
                   </a>
 
                   <button
-                    onClick={handleProceedWithSimulation}
+                    onClick={connectOnChainKeypairFallback}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-slate-800 rounded-xl transition font-semibold text-xs cursor-pointer"
                   >
-                    <span>Proceed with Simulated {selectedWalletName} Sandbox</span>
+                    <span>Use Secure Embedded Local Wallet (Recommended)</span>
                   </button>
 
                   <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-[10px] rounded-xl flex gap-2 leading-relaxed">
                     <Info className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
                     <span>
-                      <strong>Real Arc Network:</strong> When opened in a new tab, other browser actions will invoke MetaMask directly to sign and execute gasless transactions on the real <strong>Arc Testnet (5042002)</strong>!
+                      <strong>Real Arc Network:</strong> Both embedded local wallet and external MetaMask extension connections talk directly to the real <strong>Arc Testnet (5042002)</strong> Node.
                     </span>
                   </div>
                 </div>
@@ -1284,24 +1228,12 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
 
                           <div className="relative flex items-center py-1">
                             <div className="flex-grow border-t border-slate-200"></div>
-                            <span className="flex-shrink mx-2 text-[8px] font-mono uppercase tracking-widest text-slate-400">Or Continue inside Sandbox</span>
+                            <span className="flex-shrink mx-2 text-[8px] font-mono uppercase tracking-widest text-slate-500 font-bold">Or Connect with Secure Keypair</span>
                             <div className="flex-grow border-t border-slate-200"></div>
                           </div>
 
                           {/* Fallback connection options inside sandboxed environment */}
                           <div className="space-y-2">
-                            <button
-                              onClick={handleProceedWithSimulation}
-                              type="button"
-                              className="w-full flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-750 hover:to-indigo-755 text-white rounded-xl transition cursor-pointer text-left font-bold shadow-sm"
-                            >
-                              <div className="text-left py-0.5">
-                                <span className="text-[11px] font-bold text-white block font-sans">Simulate {selectedWalletName} Sandbox (Fast)</span>
-                                <span className="text-[9px] text-blue-105 block leading-tight font-sans mt-0.5">No extension required. Generates active cryptographic session with mock USDC allocation</span>
-                              </div>
-                              <ArrowRight className="w-4 h-4 text-white shrink-0" />
-                            </button>
-
                             <button
                               onClick={connectOnChainKeypairFallback}
                               type="button"
