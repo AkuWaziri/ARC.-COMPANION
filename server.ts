@@ -657,7 +657,8 @@ app.post("/api/transaction/execute", async (req, res) => {
     note: note || "",
     status: "success",
     timestamp: new Date().toISOString(),
-    securitySigned: true
+    securitySigned: true,
+    isLocalLedger: true
   };
 
   activeTxs.unshift(newTx);

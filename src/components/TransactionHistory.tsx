@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { History, ShieldCheck, ExternalLink, Search, RefreshCw, Layers, CheckCircle } from "lucide-react";
+import { History, ShieldCheck, ExternalLink, Search, RefreshCw, Layers, CheckCircle, Copy, Check } from "lucide-react";
 import { Transaction } from "../types";
 
 interface TransactionHistoryProps {
@@ -10,6 +10,7 @@ interface TransactionHistoryProps {
 export default function TransactionHistory({ transactions, onRefresh }: TransactionHistoryProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [copiedTxId, setCopiedTxId] = useState<string | null>(null);
 
   const truncateAddress = (addr: string) => {
     if (!addr) return "";
@@ -154,15 +155,24 @@ export default function TransactionHistory({ transactions, onRefresh }: Transact
                       </td>
                       <td className="py-2.5 text-right">
                         {tx.txHash ? (
-                          <a
-                            href={`https://testnet.arcscan.app/tx/${tx.txHash}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[9px] text-slate-500 hover:text-slate-950 font-mono border border-slate-200 rounded px-2 py-0.5 bg-white shadow-3xs transition"
-                          >
-                            <span>{tx.txHash.slice(0, 8)}</span>
-                            <ExternalLink className="w-2.5 h-2.5 text-slate-400" />
-                          </a>
+                          tx.isLocalLedger ? (
+                            <span 
+                              className="inline-flex items-center gap-1 text-[9px] text-slate-500 font-mono border border-slate-200 rounded px-2 py-0.5 bg-slate-100 shadow-3xs" 
+                              title="Secure Offline Local Handshake (No real onchain txn broadcasted)"
+                            >
+                              <span>Local Ledger</span>
+                            </span>
+                          ) : (
+                            <a
+                              href={`https://testnet.arcscan.app/tx/${tx.txHash}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-[9px] text-slate-550 hover:text-slate-950 font-mono border border-slate-200 rounded px-2 py-0.5 bg-white shadow-3xs transition"
+                            >
+                              <span>{tx.txHash.slice(0, 8)}</span>
+                              <ExternalLink className="w-2.5 h-2.5 text-slate-400" />
+                            </a>
+                          )
                         ) : (
                           <span className="text-[9px] text-slate-400 italic">Pending</span>
                         )}
@@ -225,15 +235,62 @@ export default function TransactionHistory({ transactions, onRefresh }: Transact
                       <span className="text-slate-450">{tx.status}</span>
                     </div>
                     {tx.txHash ? (
-                      <a
-                        href={`https://testnet.arcscan.app/tx/${tx.txHash}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1 text-[8px] text-slate-550 bg-white hover:bg-slate-50 border border-slate-200 rounded px-1.5 py-0.2 hover:text-slate-950 transition font-mono"
-                      >
-                        <span>Hash: {tx.txHash.slice(0, 8)}</span>
-                        <ExternalLink className="w-2.5 h-2.5 text-slate-400" />
-                      </a>
+                      tx.isLocalLedger ? (
+                        <div 
+                          className="flex items-center gap-1 text-[8px] text-slate-500 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.2 select-none font-mono"
+                          title="Secure Offline Local Handshake (No real onchain txn broadcasted)"
+                        >
+                          <span>Local Ledger</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <a
+                            href={`https://testnet.arcscan.app/tx/${tx.txHash}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-0.5 text-[8px] text-slate-550 bg-white hover:bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 hover:text-slate-950 transition font-mono whitespace-nowrap"
+                            title="Open Explorer in New Tab"
+                          >
+                            <span>Hash: {tx.txHash.slice(0, 8)}</span>
+                            <ExternalLink className="w-2 h-2 text-slate-400" />
+                          </a>
+
+                          <a
+                            href={`https://testnet.arcscan.app/tx/${tx.txHash}`}
+                            target="_self"
+                            className="text-[8px] text-slate-600 bg-slate-150 hover:bg-slate-200 border border-slate-200 rounded px-1 py-0.5 transition font-sans font-medium whitespace-nowrap"
+                            title="Open in Same Tab"
+                          >
+                            Same Tab
+                          </a>
+
+                          <button
+                            onClick={() => {
+                              const url = `https://testnet.arcscan.app/tx/${tx.txHash}`;
+                              navigator.clipboard.writeText(url);
+                              setCopiedTxId(tx.id);
+                              setTimeout(() => setCopiedTxId(null), 2000);
+                            }}
+                            className={`flex items-center gap-0.5 text-[8px] rounded px-1.5 py-0.5 font-sans font-medium border whitespace-nowrap cursor-pointer transition ${
+                              copiedTxId === tx.id 
+                                ? "bg-emerald-50 border-emerald-300 text-emerald-800" 
+                                : "bg-blue-50 border-blue-200 text-blue-750 hover:bg-blue-100"
+                            }`}
+                          >
+                            {copiedTxId === tx.id ? (
+                              <>
+                                <Check className="w-2 h-2 text-emerald-600 font-bold" />
+                                <span>Copied!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-2 h-2 text-blue-500" />
+                                <span>Copy Link</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )
                     ) : (
                       <div className="flex items-center gap-1 text-[8px] text-slate-400 bg-white/80 border border-slate-300/40 rounded px-1 py-0.2 select-none">
                         <span>Hash: Pending</span>

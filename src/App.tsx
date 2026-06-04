@@ -24,7 +24,9 @@ import {
   Wallet,
   Shield,
   LogOut,
-  Twitter
+  Twitter,
+  Copy,
+  Check
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import WalletCard from "./components/WalletCard";
@@ -122,6 +124,9 @@ export default function App() {
 
   // Network mode: simulated vs live
   const [networkMode, setNetworkMode] = useState<'simulated' | 'live'>('live');
+
+  // Copy state tracker for Explorer URL in Chat bubble
+  const [copiedTxId, setCopiedTxId] = useState<string | null>(null);
 
   const promptAddArcNetwork = async (): Promise<boolean> => {
     if (typeof window !== "undefined" && (window as any).ethereum) {
@@ -833,34 +838,11 @@ export default function App() {
         executionData = await res.json();
       }
       } catch (errApi: any) {
-         if (errApi?.message && errApi.message.includes("cancelled")) {
-           throw errApi; // don't execute if cancelled by user in extension
-         }
-         console.warn("Server execution failed. Completing transaction in robust client-side memory database:", errApi);
-         
-         const nextBalance = Math.max(0, wallet.balance - draft.amount);
-         const updatedWallet = {
-           ...wallet,
-           balance: nextBalance
-         };
-         setWallet(updatedWallet);
-         localStorage.setItem("arc_wallet_session", JSON.stringify(updatedWallet));
-         
-         const simulatedTx = {
-           id: `tx-${Date.now()}`,
-           txHash: "0x" + Array.from({length: 64}, () => Math.floor(Math.random() * 16).toString(16)).join(""),
-           fromAddress: wallet.address,
-           toName: draft.toName,
-           toAddress: draft.toAddress,
-           amount: draft.amount,
-           token: draft.token || "USDC",
-           note: draft.note || "Digital agents escrow payment",
-           status: "success",
-           timestamp: new Date().toISOString()
-         };
-         
-         setTransactions(prev => [simulatedTx, ...prev]);
-         executionData = { hash: simulatedTx.txHash };
+        if (errApi?.message && errApi.message.includes("cancelled")) {
+          throw errApi; // don't execute if cancelled by user in extension
+        }
+        console.error("On-chain wallet transaction failed:", errApi);
+        throw new Error(errApi?.message || "On-chain transaction execution failed.");
       }
 
       addSecurityLog(`Consensus finalized. Hash: ${executionData.hash}`);
@@ -1186,16 +1168,74 @@ export default function App() {
                                       </div>
                                     </div>
 
-                                    <div className="pt-1 border-t border-emerald-100">
-                                      <a
-                                        href={`https://testnet.arcscan.app/tx/${msg.transaction.txHash}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-[8px] text-slate-600 hover:underline flex items-center gap-1 mt-0.5 break-all font-mono"
-                                      >
-                                        <span>Hash: {msg.transaction.txHash.slice(0, 16)}...</span>
-                                        <ExternalLink className="w-2 h-2 shrink-0" />
-                                      </a>
+                                    <div className="pt-2 border-t border-emerald-100 flex flex-col gap-2">
+                                      {msg.transaction.isLocalLedger ? (
+                                        <div className="text-[8px] text-slate-500 font-mono flex items-center gap-1 select-none" title="This transaction reflects a safe local enclave book modification.">
+                                          <span>Local Enclave Ledger Adjustment (Offline Mode)</span>
+                                        </div>
+                                      ) : (
+                                        <div className="space-y-1.5">
+                                          <div className="flex flex-wrap items-center justify-between gap-1.5 text-[8.5px] font-mono">
+                                            <div className="flex items-center gap-1 text-slate-700">
+                                              <span className="font-bold text-slate-900">Hash:</span>
+                                              <span className="select-all break-all">{msg.transaction.txHash}</span>
+                                            </div>
+                                          </div>
+                                          
+                                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                            {/* Open in New Tab for Standard Desktops */}
+                                            <a
+                                              href={`https://testnet.arcscan.app/tx/${msg.transaction.txHash}`}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="inline-flex items-center gap-1 text-[8px] font-bold px-1.5 py-0.5 bg-slate-200 hover:bg-slate-250 border border-slate-350 text-slate-705 rounded transition font-sans"
+                                            >
+                                              <span>Explorer (New Tab)</span>
+                                              <ExternalLink className="w-2 h-2 text-slate-500" />
+                                            </a>
+
+                                            {/* Open in Same Tab for Mobile Web3 dApp browsers layout block */}
+                                            <a
+                                              href={`https://testnet.arcscan.app/tx/${msg.transaction.txHash}`}
+                                              target="_self"
+                                              className="inline-flex items-center gap-0.5 text-[8px] font-bold px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 text-white rounded transition font-sans"
+                                              title="Best for mobile MetaMask browser to avoid black/blocked pages"
+                                            >
+                                              <span>Same Tab</span>
+                                            </a>
+
+                                            {/* Copy transaction direct explorer URL with dynamic timer visual feedback */}
+                                            <button
+                                              onClick={() => {
+                                                const url = `https://testnet.arcscan.app/tx/${msg.transaction.txHash}`;
+                                                navigator.clipboard.writeText(url);
+                                                setCopiedTxId(msg.id);
+                                                triggerSynthBeep(650, 750, "neutral");
+                                                setTimeout(() => {
+                                                  setCopiedTxId(null);
+                                                }, 2000);
+                                              }}
+                                              className={`inline-flex items-center gap-1 text-[8px] font-bold px-2 py-0.5 rounded transition font-sans cursor-pointer ${
+                                                copiedTxId === msg.id 
+                                                  ? "bg-emerald-100 border border-emerald-300 text-emerald-800" 
+                                                  : "bg-blue-50 hover:bg-blue-100 border border-blue-250 text-blue-700"
+                                              }`}
+                                            >
+                                              {copiedTxId === msg.id ? (
+                                                <>
+                                                  <Check className="w-2 h-2 text-emerald-600 font-bold animate-bounce" />
+                                                  <span>Copied Explorer Link!</span>
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <Copy className="w-2 h-2 text-blue-500" />
+                                                  <span>Copy Link</span>
+                                                </>
+                                              )}
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 )}

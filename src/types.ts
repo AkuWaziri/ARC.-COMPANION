@@ -28,6 +28,7 @@ export interface Transaction {
   status: 'draft' | 'confirming' | 'signing' | 'broadcasting' | 'success' | 'failed';
   timestamp: string;
   securitySigned?: boolean;
+  isLocalLedger?: boolean;
 }
 
 export interface Message {

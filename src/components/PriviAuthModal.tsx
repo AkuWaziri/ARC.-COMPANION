@@ -85,6 +85,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
   }, [step]);
   
   const [copied, setCopied] = useState(false);
+  const [copiedDappUrl, setCopiedDappUrl] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [connectPhoneLoading, setConnectPhoneLoading] = useState(false);
@@ -357,11 +358,45 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
     }, 1200);
   };
 
+  const isMobileDevice = () => {
+    return typeof window !== "undefined" && 
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  };
+
+  const triggerMobileWalletDeepLink = (walletName: string) => {
+    if (typeof window === "undefined") return;
+
+    const currentUrl = window.location.href;
+    const cleanUrl = currentUrl.replace(/^https?:\/\//, '');
+    let targetDeepLink = "";
+
+    const lowerName = walletName.toLowerCase();
+    if (lowerName.includes("metamask")) {
+      targetDeepLink = `https://metamask.app.link/dapp/${cleanUrl}`;
+    } else if (lowerName.includes("trust")) {
+      targetDeepLink = `https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(currentUrl)}`;
+    } else if (lowerName.includes("rabby")) {
+      targetDeepLink = `rabby://open_url?url=${encodeURIComponent(currentUrl)}`;
+    } else {
+      targetDeepLink = `ethereum://dapp/${cleanUrl}`;
+    }
+
+    try {
+      window.location.href = targetDeepLink;
+    } catch (e) {
+      console.warn("Failed to trigger deep link redirect:", e);
+    }
+  };
+
   const handleWalletConnectSelect = (walletName: string) => {
     setSelectedWalletName(walletName);
     setErrorMsg("");
     setStep('wallet-prompt');
     triggerBeep(480, 580, "neutral");
+
+    if (isMobileDevice()) {
+      triggerMobileWalletDeepLink(walletName);
+    }
   };
 
   const triggerAddOrSwitchChain = async () => {
@@ -1044,19 +1079,19 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                   <div className="text-[10px] font-mono text-slate-500">Approve transaction signature inside your trusted app</div>
                 </div>
               ) : (
-                /* Desktop extension list in a clean, wide 2-column grid with low vertical footprint */
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                /* Desktop extension list in a clean, wide 3-column grid with low vertical footprint */
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
                     onClick={() => handleWalletConnectSelect("MetaMask")}
                     className="flex items-center justify-between p-2.5 bg-slate-150 border border-slate-350 hover:border-slate-450 hover:bg-slate-200 rounded-xl transition cursor-pointer"
                   >
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 bg-amber-500/10 border border-amber-500/20 text-[10px] rounded-lg flex items-center justify-center select-none shrink-0">
+                      <div className="w-6 h-6 bg-amber-500/10 border border-amber-500/20 text-[10px] rounded-lg flex items-center justify-center select-none shrink-0 font-bold">
                         🦊
                       </div>
                       <div className="text-left">
                         <span className="text-xs font-bold text-slate-900 block leading-tight">MetaMask</span>
-                        <span className="text-[8px] font-mono text-slate-450 block uppercase leading-none mt-0.5">Browser Extension</span>
+                        <span className="text-[8px] font-mono text-slate-450 block uppercase leading-none mt-0.5">Mobile & Ext</span>
                       </div>
                     </div>
                   </button>
@@ -1066,7 +1101,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                     className="flex items-center justify-between p-2.5 bg-slate-150 border border-slate-350 hover:border-slate-450 hover:bg-slate-200 rounded-xl transition cursor-pointer"
                   >
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 bg-indigo-500/10 border border-indigo-500/20 text-[10px] rounded-lg flex items-center justify-center select-none shrink-0">
+                      <div className="w-6 h-6 bg-indigo-500/10 border border-indigo-500/20 text-[10px] rounded-lg flex items-center justify-center select-none shrink-0 font-bold">
                         🐰
                       </div>
                       <div className="text-left">
@@ -1075,6 +1110,21 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                           <span className="text-[7px] font-mono bg-indigo-100 text-indigo-700 border border-indigo-300 px-0.5 rounded uppercase leading-none">Best</span>
                         </div>
                         <span className="text-[8px] font-mono text-slate-400 block uppercase leading-none mt-0.5">Recomm.</span>
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => handleWalletConnectSelect("Trust Wallet")}
+                    className="flex items-center justify-between p-2.5 bg-slate-150 border border-slate-350 hover:border-slate-450 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 bg-blue-500/10 border border-blue-500/20 text-[10px] rounded-lg flex items-center justify-center select-none shrink-0 font-bold">
+                        🛡️
+                      </div>
+                      <div className="text-left">
+                        <span className="text-xs font-bold text-slate-900 block leading-tight">Trust Wallet</span>
+                        <span className="text-[8px] font-mono text-slate-450 block uppercase leading-none mt-0.5">Mobile & Ext</span>
                       </div>
                     </div>
                   </button>
@@ -1163,7 +1213,8 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                 <h2 className="text-lg font-bold font-display text-slate-950 flex items-center gap-2">
                   <span className="text-xl">
                     {selectedWalletName.toLowerCase().includes("metamask") ? "🦊" : 
-                     selectedWalletName.toLowerCase().includes("rabby") ? "🐰" : "💼"}
+                     selectedWalletName.toLowerCase().includes("rabby") ? "🐰" : 
+                     selectedWalletName.toLowerCase().includes("trust") ? "🛡️" : "💼"}
                   </span>
                   <span>Connect {selectedWalletName}</span>
                 </h2>
@@ -1210,42 +1261,101 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
 
                     {!isExtensionDetected ? (
                       <div className="space-y-2">
-                        <p className="text-[11px] text-slate-600 leading-relaxed">
-                          Your web browser's <strong>{selectedWalletName}</strong> extension is not injection-accessible, typically because this app is currently rendering inside a secure, sandboxed iframe.
-                        </p>
-                        
-                        <div className="border-t border-slate-200/65 pt-2.5 space-y-2">
-                          {/* Launch in new tab */}
-                          <a
-                            href={typeof window !== "undefined" ? window.location.href : "#"}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="w-full flex items-center justify-between px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition font-sans font-bold text-xs cursor-pointer shadow-sm"
+                        {isMobileDevice() ? (
+                          <>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              We are triggering <strong>{selectedWalletName}</strong> immediately via native deep links.
+                            </p>
+                            
+                            <div className="bg-slate-200 border border-slate-350 rounded-xl p-2.5 text-[10px] text-slate-700 leading-normal font-sans">
+                              📱 <strong>Tip for Mobile Web3 Browsers:</strong> If your mobile app didn't open automatically, you can tap below to retry deep launch, or copy this secure App Url and paste it directly into the search bar of your wallet's built-in Web3 browser.
+                            </div>
+
+                            <div className="border-t border-slate-200/65 pt-2.5 space-y-2">
+                              {/* Open deep link button */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  triggerBeep(350, 480, "neutral");
+                                  triggerMobileWalletDeepLink(selectedWalletName);
+                                }}
+                                className="w-full flex items-center justify-between px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition font-sans font-bold text-xs cursor-pointer shadow-sm animate-pulse hover:animate-none"
+                              >
+                                <span>Retry Direct Deep Launch in Wallet 🚀</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Copy dApp link button */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (typeof window !== "undefined") {
+                                    navigator.clipboard.writeText(window.location.href);
+                                    setCopiedDappUrl(true);
+                                    triggerBeep(650, 750, "neutral");
+                                    setTimeout(() => setCopiedDappUrl(false), 2000);
+                                  }
+                                }}
+                                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                                  copiedDappUrl 
+                                    ? "bg-emerald-100 border-emerald-300 text-emerald-800" 
+                                    : "bg-slate-100 border-slate-355 text-slate-755 hover:bg-slate-200"
+                                }`}
+                              >
+                                {copiedDappUrl ? (
+                                  <>
+                                    <span>Url Copied into Cache!</span>
+                                    <Check className="w-4 h-4 text-emerald-600 animate-bounce" />
+                                  </>
+                                ) : (
+                                  <>
+                                    <span>Copy app URL to search manually</span>
+                                    <Copy className="w-3.5 h-3.5 text-slate-500" />
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              Your web browser's <strong>{selectedWalletName}</strong> extension is not injection-accessible, typically because this app is currently rendering inside a secure, sandboxed iframe.
+                            </p>
+                            
+                            <div className="border-t border-slate-200/65 pt-2.5 space-y-2">
+                              {/* Launch in new tab */}
+                              <a
+                                href={typeof window !== "undefined" ? window.location.href : "#"}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="w-full flex items-center justify-between px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition font-sans font-bold text-xs cursor-pointer shadow-sm"
+                              >
+                                <span>Open in New Tab for Real Wallet Direct Injection</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </a>
+                            </div>
+                          </>
+                        )}
+
+                        <div className="relative flex items-center py-1">
+                          <div className="flex-grow border-t border-slate-200"></div>
+                          <span className="flex-shrink mx-2 text-[8px] font-mono uppercase tracking-widest text-slate-500 font-bold">Or Connect with Secure Keypair</span>
+                          <div className="flex-grow border-t border-slate-200"></div>
+                        </div>
+
+                        {/* Fallback connection options inside sandboxed environment */}
+                        <div className="space-y-2">
+                          <button
+                            onClick={connectOnChainKeypairFallback}
+                            type="button"
+                            className="w-full flex items-center justify-between px-3 py-2 bg-slate-150 hover:bg-slate-200 border border-slate-350 text-slate-800 rounded-xl transition cursor-pointer text-left font-semibold"
                           >
-                            <span>Open in New Tab for Real Wallet Direct Injection</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </a>
-
-                          <div className="relative flex items-center py-1">
-                            <div className="flex-grow border-t border-slate-200"></div>
-                            <span className="flex-shrink mx-2 text-[8px] font-mono uppercase tracking-widest text-slate-500 font-bold">Or Connect with Secure Keypair</span>
-                            <div className="flex-grow border-t border-slate-200"></div>
-                          </div>
-
-                          {/* Fallback connection options inside sandboxed environment */}
-                          <div className="space-y-2">
-                            <button
-                              onClick={connectOnChainKeypairFallback}
-                              type="button"
-                              className="w-full flex items-center justify-between px-3 py-2 bg-slate-150 hover:bg-slate-200 border border-slate-350 text-slate-800 rounded-xl transition cursor-pointer text-left font-semibold"
-                            >
-                              <div className="text-left py-0.5">
-                                <span className="text-[11px] font-bold text-slate-900 block font-sans">Bridge Direct via Arc RPC Node</span>
-                                <span className="text-[9px] text-slate-550 block leading-tight font-sans mt-0.5">Generates a local secure key to sync directly with real Arc Network RPC</span>
-                              </div>
-                              <Check className="w-4 h-4 text-emerald-500 shrink-0" />
-                            </button>
-                          </div>
+                            <div className="text-left py-0.5">
+                              <span className="text-[11px] font-bold text-slate-900 block font-sans">Bridge Direct via Arc RPC Node</span>
+                              <span className="text-[9px] text-slate-550 block leading-tight font-sans mt-0.5">Generates a local secure key to sync directly with real Arc Network RPC</span>
+                            </div>
+                            <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                          </button>
                         </div>
                       </div>
                     ) : (walletChainId && (walletChainId.toLowerCase() === "0x4cef52" || walletChainId === "5042002" || walletChainId.toLowerCase() === "0x04cef52")) ? (
