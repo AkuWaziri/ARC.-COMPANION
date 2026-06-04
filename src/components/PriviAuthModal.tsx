@@ -627,22 +627,22 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
     <div id="privi-auth-blur" className="fixed inset-0 bg-slate-250/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
       <div 
         id="privi-auth-box" 
-        className={`w-full bg-white border border-slate-400 rounded-3xl p-4 sm:p-6 shadow-2xl relative overflow-hidden transition-all duration-300 ${
+        className={`w-full bg-white border border-slate-400 rounded-3xl p-4 sm:p-6 shadow-2xl relative max-h-[88vh] sm:max-h-[85vh] overflow-y-auto transition-all duration-300 ${
           step === 'methods' || step === 'wallet-connect' ? 'max-w-2xl' : 'max-w-md'
         }`}
       >
         
         {/* Accent Top Border */}
-        <div className="absolute top-0 left-0 right-0 h-[4px] bg-gradient-to-r from-blue-500 via-slate-900 to-emerald-500" />
+        <div className="absolute top-0 left-0 right-0 h-[4px] bg-gradient-to-r from-blue-500 via-slate-900 to-emerald-500 z-50" />
 
-        {/* Dynamic SMTP Email Delivery Notice Toast */}
+        {/* Dynamic SMTP Email Delivery Notice Toast (Inline non-blocking format on mobile to prevent blocking security codes) */}
         <AnimatePresence>
           {showEmailToast && (
             <motion.div
-              initial={{ opacity: 0, y: -40, scale: 0.95 }}
+              initial={{ opacity: 0, y: -20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -20, scale: 0.95 }}
-              className="absolute top-3 left-3 right-3 z-[60] bg-slate-950 text-white rounded-2xl p-3 border border-slate-800 shadow-2xl flex items-start gap-2.5"
+              exit={{ opacity: 0, y: -10, scale: 0.95 }}
+              className="mb-4 bg-slate-950 text-white rounded-2xl p-3 border border-slate-800 shadow-2xl flex items-start gap-2.5 relative z-50"
             >
               <div className="w-8 h-8 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-xs flex items-center justify-center shrink-0">
                 📩
@@ -658,6 +658,25 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                 <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
                   Open your real email inbox at <strong className="text-slate-200 font-mono select-all font-semibold">{email}</strong> to retrieve your secure 6-digit confirmation code.
                 </p>
+                {receivedOtp && (
+                  <div className="mt-2.5 p-2 bg-blue-950/50 border border-blue-500/30 rounded-xl flex items-center justify-between gap-1.5">
+                    <div className="text-left">
+                      <span className="text-[8px] text-blue-400 uppercase font-mono block leading-none font-bold">Sandbox Code</span>
+                      <span className="text-xs font-black font-mono tracking-widest text-white mt-0.5 block">{receivedOtp}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerBeep(420, 620, "neutral");
+                        setOtp(receivedOtp.split(""));
+                        setShowEmailToast(false);
+                      }}
+                      className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[9px] font-bold transition select-none cursor-pointer"
+                    >
+                      Autofill Now
+                    </button>
+                  </div>
+                )}
               </div>
               <button
                 type="button"
@@ -860,26 +879,11 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                   <input
                     type="email"
                     required
-                    placeholder="e.g. SuleimanU45@gmail.com"
+                    placeholder="e.g. SatoshiNakamoto@gmail.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full mt-1.5 px-3.5 py-2.5 bg-slate-100 border border-slate-400 rounded-xl text-xs text-slate-950 placeholder-slate-500 focus:outline-none focus:border-slate-800 focus:bg-white"
                   />
-                  
-                  {/* Shortcut option */}
-                  <div className="mt-2.5 flex items-center gap-1.5">
-                    <span className="text-[10px] font-mono text-slate-400 uppercase">Dev shortcut:</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEmail("SuleimanU45@gmail.com");
-                        triggerBeep(400, 500, "neutral");
-                      }}
-                      className="text-[10px] bg-slate-250 border border-slate-400 px-2 py-0.5 rounded hover:bg-slate-300 transition text-slate-800 font-medium"
-                    >
-                      "SuleimanU45@gmail.com"
-                    </button>
-                  </div>
                 </div>
 
                 <button
@@ -1285,17 +1289,31 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                           </div>
 
                           {/* Fallback connection options inside sandboxed environment */}
-                          <button
-                            onClick={connectOnChainKeypairFallback}
-                            type="button"
-                            className="w-full flex items-center justify-between px-3 py-2.5 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-slate-800 rounded-xl transition cursor-pointer text-left font-semibold"
-                          >
-                            <div className="text-left py-0.5">
-                              <span className="text-[11px] font-bold text-slate-900 block font-sans">Bridge Direct via Arc RPC Node</span>
-                              <span className="text-[9px] text-slate-500 block leading-tight font-sans mt-0.5">Generates a secure local key to sync directly with real Arc Network RPC</span>
-                            </div>
-                            <Check className="w-4 h-4 text-emerald-500 shrink-0" />
-                          </button>
+                          <div className="space-y-2">
+                            <button
+                              onClick={handleProceedWithSimulation}
+                              type="button"
+                              className="w-full flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-750 hover:to-indigo-755 text-white rounded-xl transition cursor-pointer text-left font-bold shadow-sm"
+                            >
+                              <div className="text-left py-0.5">
+                                <span className="text-[11px] font-bold text-white block font-sans">Simulate {selectedWalletName} Sandbox (Fast)</span>
+                                <span className="text-[9px] text-blue-105 block leading-tight font-sans mt-0.5">No extension required. Generates active cryptographic session with mock USDC allocation</span>
+                              </div>
+                              <ArrowRight className="w-4 h-4 text-white shrink-0" />
+                            </button>
+
+                            <button
+                              onClick={connectOnChainKeypairFallback}
+                              type="button"
+                              className="w-full flex items-center justify-between px-3 py-2 bg-slate-150 hover:bg-slate-200 border border-slate-350 text-slate-800 rounded-xl transition cursor-pointer text-left font-semibold"
+                            >
+                              <div className="text-left py-0.5">
+                                <span className="text-[11px] font-bold text-slate-900 block font-sans">Bridge Direct via Arc RPC Node</span>
+                                <span className="text-[9px] text-slate-550 block leading-tight font-sans mt-0.5">Generates a local secure key to sync directly with real Arc Network RPC</span>
+                              </div>
+                              <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ) : (walletChainId && (walletChainId.toLowerCase() === "0x4cef52" || walletChainId === "5042002" || walletChainId.toLowerCase() === "0x04cef52")) ? (
