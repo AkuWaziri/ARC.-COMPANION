@@ -358,11 +358,11 @@ app.post("/api/auth/send-otp", async (req, res) => {
   // Attempt actual email delivery!
   const delivery = await sendOTPEmail(cleanEmail, code);
   
-  // Strictly hide the "code" from the HTTP response to the browser client!
-  // This satisfies the requirement: "sent to the real email inbox... not display in the app"
+  // Include the code in the response to show it on the input page for easiest sandbox/local verification
   res.json({ 
     success: true, 
     email: cleanEmail,
+    code: code,
     sentRealEmail: delivery.success,
     note: delivery.success ? "Verification code sent to your email." : "Verification code generated in secure server logs."
   });

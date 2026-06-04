@@ -232,7 +232,7 @@ export default function TransactionHistory({ transactions, onRefresh }: Transact
                         className="flex items-center gap-1 text-[8px] text-slate-550 bg-white hover:bg-slate-50 border border-slate-200 rounded px-1.5 py-0.2 hover:text-slate-950 transition font-mono"
                       >
                         <span>Hash: {tx.txHash.slice(0, 8)}</span>
-                        <ExternalLink className="w-22 h-2.5 text-slate-400" />
+                        <ExternalLink className="w-2.5 h-2.5 text-slate-400" />
                       </a>
                     ) : (
                       <div className="flex items-center gap-1 text-[8px] text-slate-400 bg-white/80 border border-slate-300/40 rounded px-1 py-0.2 select-none">

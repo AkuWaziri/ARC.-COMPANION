@@ -802,46 +802,46 @@ export default function App() {
   };
 
   return (
-    <div id="ai-money-agent-app" className="h-screen max-h-screen overflow-hidden bg-slate-100/90 text-slate-900 flex flex-col font-sans selection:bg-slate-300 selection:text-slate-900">
+    <div id="ai-money-agent-app" className="h-[100dvh] max-h-[100dvh] md:h-screen md:max-h-screen overflow-hidden bg-slate-200 text-slate-900 flex flex-col font-sans selection:bg-slate-300 selection:text-slate-900">
       
       {/* Top Floating Header Rail */}
-      <div className={`shrink-0 sticky top-0 z-50 w-full px-4 pt-4 sm:px-6 transition-all duration-300 ease-in-out ${
+      <div className={`shrink-0 sticky top-0 z-50 w-full px-2 pt-2 sm:px-6 sm:pt-4 transition-all duration-300 ease-in-out ${
         showHeader ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0 pointer-events-none"
       }`}>
         <motion.header 
           id="agent-main-header" 
-          className={`mx-auto max-w-7xl transition-all duration-300 flex items-center justify-between rounded-2xl border relative overflow-hidden ${
+          className={`mx-auto max-w-7xl transition-all duration-300 flex items-center justify-between rounded-xl sm:rounded-2xl border relative overflow-hidden ${
             scrolled 
-              ? "bg-white/95 backdrop-blur-md px-6 py-2.5 border-slate-300 shadow-md" 
-              : "bg-white px-6 py-4 border-slate-300 shadow-sm"
+              ? "bg-white/95 backdrop-blur-md px-3 py-1.5 sm:px-6 sm:py-2.5 border-slate-300 shadow-md" 
+              : "bg-white px-3 py-2 sm:px-6 sm:py-4 border-slate-300 shadow-sm"
           }`}
           layout
         >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3">
           <div className="relative">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-slate-900 via-slate-800 to-slate-950 p-[1.5px] flex items-center justify-center shadow-md shadow-blue-500/5 ring-1 ring-white/10 hover:scale-[1.03] transition-transform duration-300">
-              <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center relative overflow-hidden">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-gradient-to-tr from-slate-900 via-slate-800 to-slate-950 p-[1.5px] flex items-center justify-center shadow-md shadow-blue-500/5 ring-1 ring-white/10 hover:scale-[1.03] transition-transform duration-300">
+              <div className="w-full h-full rounded-[6px] sm:rounded-[10px] bg-slate-950 flex items-center justify-center relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/10 via-transparent to-transparent opacity-60" />
-                <Bot className="w-5.5 h-5.5 text-blue-400 relative z-10 animate-pulse drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]" />
+                <Bot className="w-4 h-4 sm:w-5.5 sm:h-5.5 text-blue-400 relative z-10 animate-pulse drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]" />
               </div>
             </div>
           </div>
 
           <div className="text-left">
-            <h1 className="text-xs font-bold font-display tracking-wider text-slate-900 uppercase">ARC COMPANION</h1>
-            <p className="text-[8.5px] font-mono text-slate-500 lowercase tracking-wider flex items-center gap-1.5 mt-0.5">
+            <h1 className="text-[11px] sm:text-xs font-bold font-display tracking-wider text-slate-900 uppercase">ARC COMPANION</h1>
+            <p className="hidden sm:flex text-[8.5px] font-mono text-slate-500 lowercase tracking-wider items-center gap-1.5 mt-0.5">
               <span>arc. native. wallet. finance.</span>
             </p>
           </div>
         </div>
 
         {/* Diagnostic Status indicators showing Live Flow & Sign Out Option */}
-        <div id="header-right-controls" className="flex items-center gap-2.5">
+        <div id="header-right-controls" className="flex items-center gap-1.5 sm:gap-2.5">
           {/* Network Selector Pill */}
-          <div className="bg-slate-100 border border-slate-300 rounded-lg p-[2px] flex items-center text-slate-600 select-none">
+          <div className="bg-slate-200 border border-slate-350 rounded-lg p-[1.5px] flex items-center text-slate-700 select-none">
             <button
               onClick={() => setNetworkMode("simulated")}
-              className={`px-2 py-0.5 rounded text-[8px] sm:text-[9px] font-mono uppercase font-bold transition-all cursor-pointer ${
+              className={`px-1.5 py-0.5 rounded text-[7.5px] sm:text-[9px] font-mono uppercase font-bold transition-all cursor-pointer ${
                 networkMode === "simulated"
                   ? "bg-slate-900 text-white shadow-xs"
                   : "text-slate-500 hover:text-slate-900"
@@ -855,7 +855,7 @@ export default function App() {
                 setNetworkMode("live");
                 addSecurityLog("Operator switched network context to Arc Testnet Live.");
               }}
-              className={`px-2 py-0.5 rounded text-[8px] sm:text-[9px] font-mono uppercase font-bold transition-all cursor-pointer flex items-center gap-1 ${
+              className={`px-1.5 py-0.5 rounded text-[7.5px] sm:text-[9px] font-mono uppercase font-bold transition-all cursor-pointer flex items-center gap-1 ${
                 networkMode === "live"
                   ? "bg-blue-600 text-white shadow-xs"
                   : "text-slate-500 hover:text-blue-600"
@@ -868,7 +868,7 @@ export default function App() {
           </div>
 
           <div className="hidden sm:flex items-center gap-2.5 text-[9px] font-mono uppercase">
-            <div className="bg-slate-100 border border-slate-300 rounded px-2.5 py-1 flex items-center gap-1.5 text-slate-600 select-none hover:border-slate-400 transition-colors">
+            <div className="bg-slate-200 border border-slate-350 rounded px-2.5 py-1 flex items-center gap-1.5 text-slate-700 select-none hover:border-slate-500 transition-colors">
               <motion.span 
                 className={`w-1.5 h-1.5 rounded-full ${networkMode === "live" ? "bg-emerald-500 animate-pulse" : "bg-blue-500"}`}
                 animate={networkMode === "live" ? undefined : { opacity: [1, 0.4, 1] }}
@@ -882,7 +882,7 @@ export default function App() {
           {wallet.isConnected && (
             <button
               onClick={handleLogOut}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-rose-50 border border-slate-300 hover:border-rose-200 text-slate-600 hover:text-rose-600 rounded-xl text-[10px] font-mono uppercase tracking-wider font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              className="px-2 py-1 sm:px-3 sm:py-1.5 bg-slate-200 hover:bg-rose-50 border border-slate-355 hover:border-rose-200 text-slate-700 hover:text-rose-600 rounded-xl text-[10px] font-mono uppercase tracking-wider font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
               title="Secure Logout Session"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -899,12 +899,12 @@ export default function App() {
             transition={{ repeat: Infinity, duration: 4.5, ease: "linear" }}
           />
         </div>
-      </motion.header>
-    </div>
+        </motion.header>
+      </div>
 
       {/* Dynamic Navigation Tabs System */}
-      <div className="w-full max-w-7xl mx-auto px-4 mt-2.5 shrink-0">
-        <div id="enclave-tabs-bar" className="grid grid-cols-5 items-stretch bg-white border border-slate-300 p-1 rounded-xl shadow-xs gap-1 md:gap-1.5 select-none w-full">
+      <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 mt-1.5 sm:mt-2.5 shrink-0">
+        <div id="enclave-tabs-bar" className="grid grid-cols-5 items-stretch bg-white border border-slate-300 p-0.5 sm:p-1 rounded-lg sm:rounded-xl shadow-xs gap-0.5 sm:gap-1.5 select-none w-full">
           {[
             { id: 'chat' as const, label: 'Chat', icon: Bot },
             { id: 'wallet' as const, label: 'Wallet', icon: Wallet },
@@ -921,7 +921,7 @@ export default function App() {
                   setActiveTab(tab.id);
                   triggerSynthBeep(450 + (idx * 35), 550 + (idx * 35), "neutral");
                 }}
-                className={`py-1.5 px-0.5 sm:py-2.5 sm:px-3 text-xs font-bold font-sans transition-all duration-200 cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 relative w-full text-center ${
+                className={`py-2 px-0.5 sm:py-2.5 sm:px-3 text-xs font-bold font-sans transition-all duration-200 cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 relative w-full text-center ${
                   isActive
                     ? "text-white font-bold"
                     : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
@@ -930,12 +930,12 @@ export default function App() {
                 {isActive && (
                   <motion.div
                     layoutId="activeTabOutline"
-                    className="absolute inset-0 bg-slate-900 rounded-lg -z-10"
+                    className="absolute inset-0 bg-slate-900 rounded-md sm:rounded-lg -z-10"
                     transition={{ type: "spring", stiffness: 400, damping: 33 }}
                   />
                 )}
                 <Icon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 transition-all ${isActive ? "text-blue-400 scale-105" : "text-slate-450"}`} />
-                <span className="text-[9px] sm:text-[10.5px] tracking-tight uppercase font-bold whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
+                <span className="text-[8px] xs:text-[9.5px] sm:text-[10.5px] tracking-tight uppercase font-bold whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
                   {tab.label}
                 </span>
               </button>
@@ -945,7 +945,7 @@ export default function App() {
       </div>
 
       {/* Main Container */}
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-2.5 flex flex-col items-center justify-start overflow-hidden min-h-0">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-2 sm:px-4 py-1.5 sm:py-2.5 flex flex-col items-center justify-start overflow-hidden min-h-0">
         <div className="w-full max-w-6xl flex-1 flex flex-col overflow-hidden min-h-0">
           <AnimatePresence mode="wait">
             <motion.div
@@ -961,13 +961,13 @@ export default function App() {
                   <section id="chat-interactive-console" className="lg:col-span-8 flex flex-col bg-white border border-slate-300 rounded-2xl overflow-hidden shadow-sm relative h-full flex-1 min-h-0 w-full">
                   
                   {/* Top Info Header */}
-                  <div className="bg-slate-100 border-b border-slate-300 px-4 py-1.5 flex items-center justify-between">
+                  <div className="bg-slate-200 border-b border-slate-350 px-4 py-1.5 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-left">
                       <Zap className="w-3.5 h-3.5 text-slate-850 animate-pulse" />
                       <span className="text-[10px] font-bold text-slate-900 font-sans uppercase tracking-wider">Intent-Based AI Engine</span>
                     </div>
                     
-                    <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-slate-300 text-[9px] font-mono text-slate-600">
+                    <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-slate-350 text-[9px] font-mono text-slate-750">
                       <span>gemini-2.5 agent brain</span>
                     </div>
                   </div>
@@ -996,8 +996,8 @@ export default function App() {
                             <div className="text-left flex flex-col items-start max-w-full">
                               <div className={`py-1 px-2.5 rounded-xl text-xs leading-normal relative w-full ${
                                 isUser 
-                                  ? "bg-slate-200 text-slate-950 border border-slate-300/80 rounded-tr-none" 
-                                  : "bg-slate-50 text-slate-900 border border-slate-200/90 rounded-tl-none font-sans"
+                                  ? "bg-slate-250 text-slate-950 border border-slate-400 rounded-tr-none" 
+                                  : "bg-slate-100 text-slate-900 border border-slate-300 rounded-tl-none font-sans"
                               }`}>
                                 <div className="flex flex-col">
                                   <div className="text-[11px] leading-normal break-words">{msg.text}</div>
@@ -1145,43 +1145,43 @@ export default function App() {
                   </div>
 
                   {/* Quick-suggestion panel for fast testing */}
-                  <div className="px-4 py-1.5 border-t border-slate-300 bg-slate-100 flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap text-left">
-                    <span className="text-[9px] font-mono text-slate-450 uppercase tracking-wider mr-1.5 shrink-0">Quick Options:</span>
+                  <div className="px-2 sm:px-4 py-1.5 border-t border-slate-350 bg-slate-200 flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap text-left">
+                    <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider mr-1 shrink-0">Options:</span>
                     <button
                       onClick={() => handleSelectContact("Musa")}
-                      className="text-[9.5px] bg-white border border-slate-300 px-2 py-0.5 text-slate-700 hover:text-slate-900 hover:border-slate-400 rounded transition cursor-pointer"
+                      className="text-[9.5px] bg-white border border-slate-350 px-2.5 py-1 sm:py-0.5 text-slate-700 hover:text-slate-900 hover:border-slate-400 rounded-lg transition cursor-pointer shrink-0"
                     >
                       "Send 10 USDC to Musa"
                     </button>
                     <button
                       onClick={() => setInputText("Send 50 USDC to Alice for lunch contribution")}
-                      className="text-[9.5px] bg-white border border-slate-300 px-2 py-0.5 text-slate-700 hover:text-slate-900 hover:border-slate-400 rounded transition cursor-pointer"
+                      className="text-[9.5px] bg-white border border-slate-350 px-2.5 py-1 sm:py-0.5 text-slate-700 hover:text-slate-900 hover:border-slate-400 rounded-lg transition cursor-pointer shrink-0"
                     >
                       "Send 50 USDC to Alice"
                     </button>
                     <button
                       onClick={() => setInputText("Who is Bob?")}
-                      className="text-[9.5px] bg-white border border-slate-300 px-2 py-0.5 text-slate-700 hover:text-slate-900 hover:border-slate-400 rounded transition cursor-pointer"
+                      className="text-[9.5px] bg-white border border-slate-355 px-2.5 py-1 sm:py-0.5 text-slate-700 hover:text-slate-900 hover:border-slate-400 rounded-lg transition cursor-pointer shrink-0"
                     >
                       "Who is Bob?"
                     </button>
                   </div>
 
                   {/* Chat Form Input */}
-                  <form onSubmit={handleSendMessage} className="p-2 bg-white border-t border-slate-200 flex gap-2">
+                  <form onSubmit={handleSendMessage} className="p-1.5 sm:p-2 bg-white border-t border-slate-300 flex gap-1.5 sm:gap-2">
                     <input
                       type="text"
                       placeholder="e.g. Send 10 USDC to Musa"
                       value={inputText}
                       onChange={(e) => setInputText(e.target.value)}
                       disabled={isProcessing}
-                      className="flex-1 px-3 py-1.5 bg-slate-100 border border-slate-300 text-xs text-slate-900 rounded-lg focus:outline-none focus:border-slate-800 focus:bg-white font-sans disabled:opacity-50 placeholder:text-slate-400 text-left"
+                      className="flex-1 px-3 py-2 sm:py-1.5 bg-slate-150 border border-slate-350 text-xs text-slate-1000 rounded-lg focus:outline-none focus:border-slate-800 focus:bg-white font-sans disabled:opacity-50 placeholder:text-slate-500 text-left"
                     />
                     
                     <button
                       type="submit"
                       disabled={isProcessing || !inputText.trim()}
-                      className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-850 text-white rounded-lg text-xs font-semibold font-sans transition flex items-center gap-1.5 active:scale-[0.99] disabled:opacity-40 cursor-pointer shadow-xs"
+                      className="px-3 sm:px-3.5 py-2 sm:py-1.5 bg-slate-900 hover:bg-slate-850 text-white rounded-lg text-xs font-semibold font-sans transition flex items-center gap-1 sm:gap-1.5 active:scale-[0.99] disabled:opacity-40 cursor-pointer shadow-xs whitespace-nowrap shrink-0"
                       title="Submit command to agent"
                     >
                       <span>Execute</span>
@@ -1303,23 +1303,23 @@ export default function App() {
       </main>
 
       {/* Footer System Band */}
-      <footer id="network-footer-bar" className="mt-auto border-t border-slate-300 bg-white p-4 font-mono text-[9px] text-slate-400 flex flex-col md:flex-row items-center justify-between gap-2.5">
+      <footer id="network-footer-bar" className="mt-auto shrink-0 border-t border-slate-300 bg-white p-2 sm:p-4 font-mono text-[9px] text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-2.5">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-slate-400" />
           <span>© ARC COMPANION 2026. BY WAZIRI.</span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <span className="w-1 h-1 bg-emerald-500 rounded-full" />
-            <span>Connection: Secure</span>
+            <span className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
+            <span>Secure Tunnel</span>
           </div>
-          <span>UTC: {new Date().toISOString().replace('T', ' ').slice(0, 19)}</span>
-          <div className="flex items-center gap-3 border-l border-slate-300 pl-3">
+          <span className="hidden md:inline">UTC: {new Date().toISOString().replace('T', ' ').slice(0, 19)}</span>
+          <div className="flex items-center gap-3 sm:border-l sm:border-slate-300 sm:pl-3">
             <a href="https://x.com" target="_blank" rel="noopener noreferrer" className="hover:text-slate-900 transition-colors" title="Twitter / X">
               <Twitter className="w-3.5 h-3.5" />
             </a>
             <a href="https://t.me" target="_blank" rel="noopener noreferrer" className="hover:text-slate-900 transition-colors" title="Telegram">
-              <Send className="w-3.5 h-3.5 shrink-0 rotate-[-15deg] mt-0.5" />
+              <Send className="w-3.5 h-3.5 shrink-0 rotate-[-15deg]" />
             </a>
           </div>
         </div>

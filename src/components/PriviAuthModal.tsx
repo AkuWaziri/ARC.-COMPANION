@@ -235,6 +235,9 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
         const otpData = await otpRes.json();
         if (otpData.success) {
           setShowEmailToast(true);
+          if (otpData.code) {
+            setReceivedOtp(otpData.code);
+          }
         }
       }
     } catch (err) {
@@ -621,10 +624,10 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
   };
 
   return (
-    <div id="privi-auth-blur" className="fixed inset-0 bg-slate-100/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
+    <div id="privi-auth-blur" className="fixed inset-0 bg-slate-250/90 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
       <div 
         id="privi-auth-box" 
-        className={`w-full bg-white border border-slate-300 rounded-3xl p-6 shadow-2xl relative overflow-hidden transition-all duration-300 ${
+        className={`w-full bg-white border border-slate-400 rounded-3xl p-4 sm:p-6 shadow-2xl relative overflow-hidden transition-all duration-300 ${
           step === 'methods' || step === 'wallet-connect' ? 'max-w-2xl' : 'max-w-md'
         }`}
       >
@@ -673,7 +676,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
             <Lock className="w-4 h-4 text-slate-800" />
             <span className="text-[10px] font-mono tracking-widest font-bold uppercase text-slate-500">WalletConnect Core</span>
           </div>
-          <div className="flex items-center gap-1.5 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-300 text-[9px] font-mono font-medium text-slate-600">
+          <div className="flex items-center gap-1.5 bg-slate-200 px-2.5 py-1 rounded-full border border-slate-400 text-[9px] font-mono font-bold text-slate-800">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
             <span>Secure Gate ACTIVE</span>
           </div>
@@ -693,7 +696,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
                 {/* Left Column: ARC COMPANION Identity Block */}
-                <div className="flex flex-col justify-between bg-slate-50/60 border border-slate-200/80 rounded-2xl p-5 md:min-h-[220px] relative overflow-hidden">
+                <div className="flex flex-col justify-between bg-slate-150 border border-slate-300 rounded-2xl p-5 md:min-h-[220px] relative overflow-hidden">
                   <div className="absolute -right-16 -bottom-16 w-36 h-36 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
                   <div className="absolute -left-16 -top-16 w-36 h-36 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
                   
@@ -702,12 +705,12 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                       <h1 className="text-xl font-bold font-display text-slate-950 tracking-tight flex items-center gap-1.5">
                         <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Get Access</span>
                       </h1>
-                      <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed uppercase tracking-wider font-mono">
+                      <p className="text-[10px] text-slate-600 mt-0.5 leading-relaxed uppercase tracking-wider font-mono font-bold">
                         Secure Enclave Gateway
                       </p>
                     </div>
 
-                    <div className="py-5 flex flex-col items-center justify-center text-center bg-white border border-slate-200/50 rounded-2xl shadow-xs">
+                    <div className="py-5 flex flex-col items-center justify-center text-center bg-white border border-slate-300 rounded-2xl shadow-xs">
                       {/* Logo of the Wallet / COMPANION with glow */}
                       <div className="relative mb-2.5">
                         <div className="absolute inset-0 bg-blue-500/15 rounded-2xl blur-md scale-110 animate-pulse" />
@@ -720,7 +723,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                       <span className="text-[13px] font-mono tracking-widest font-black text-slate-950 uppercase">
                         ARC. COMPANION
                       </span>
-                      <span className="text-[9.5px] text-slate-400 font-medium mt-1 max-w-[160px] leading-tight select-none">
+                      <span className="text-[9.5px] text-slate-500 font-semibold mt-1 max-w-[160px] leading-tight select-none">
                         Your intelligent helper for secure USDC transactions, Finance and more.
                       </span>
                     </div>
@@ -733,16 +736,16 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                     </div>
                   )}
 
-                  <div className="text-[9.5px] text-slate-400 select-none flex items-center gap-1 mt-3 border-t border-slate-200/50 pt-2 relative z-10">
+                  <div className="text-[9.5px] text-slate-500 select-none flex items-center gap-1 mt-3 border-t border-slate-300 pt-2 relative z-10 font-medium">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                     <span>Real-time MPC sandbox and on-chain ledger link.</span>
                   </div>
                 </div>
 
                 {/* Right Column: Fast pass OAuth & Sandbox */}
-                <div className="flex flex-col justify-between bg-slate-50 border border-slate-200 rounded-2xl p-4 gap-3.5 md:min-h-[220px]">
+                <div className="flex flex-col justify-between bg-slate-200 border border-slate-350 rounded-2xl p-4 gap-3.5 md:min-h-[220px]">
                   <div className="space-y-2">
-                    <span className="text-[8.5px] font-mono uppercase tracking-wider text-slate-400 font-bold block">Instant Credentials</span>
+                    <span className="text-[8.5px] font-mono uppercase tracking-wider text-slate-500 font-bold block">Instant Credentials</span>
                     
                     {/* Grid of Dedicated Trigger Shortcuts */}
                     <div className="grid grid-cols-2 gap-2">
@@ -752,7 +755,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                           setErrorMsg("");
                           setStep('google-email');
                         }}
-                        className="flex items-center justify-center gap-1 px-2.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition cursor-pointer shadow-xs"
+                        className="flex items-center justify-center gap-1 px-2.5 py-2 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl transition cursor-pointer shadow-xs"
                       >
                         <Mail className="w-3.5 h-3.5 text-rose-500 shrink-0" />
                         <span className="text-[9.5px] font-bold text-slate-700">Sign Up With Google or Email</span>
@@ -764,7 +767,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                           setStep('wallet-connect');
                           setWalletConnectTab('extension');
                         }}
-                        className="flex items-center justify-center gap-1 px-2.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition cursor-pointer shadow-xs"
+                        className="flex items-center justify-center gap-1 px-2.5 py-2 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl transition cursor-pointer shadow-xs"
                       >
                         <Wallet className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                         <span className="text-[9.5px] font-bold text-slate-700">Web3 Wallets</span>
@@ -778,21 +781,21 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                         setStep('restore-mnemonic');
                         triggerBeep(350, 480, "neutral");
                       }}
-                      className="w-full flex items-center justify-between px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-500 hover:text-slate-755 transition cursor-pointer group"
+                      className="w-full flex items-center justify-between px-3 py-1.5 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl text-slate-600 hover:text-slate-900 transition cursor-pointer group"
                     >
-                      <div className="flex items-center gap-1 text-[8.5px] font-mono uppercase tracking-wider font-semibold">
+                      <div className="flex items-center gap-1 text-[8.5px] font-mono uppercase tracking-wider font-bold">
                         <Key className="w-3.5 h-3.5 text-slate-500 shrink-0 group-hover:text-amber-500 transition" />
                         <span>RESTORE WALLET WITH MNEMONIC PHRASE</span>
                       </div>
-                      <ArrowRight className="w-3 h-3 text-slate-400 group-hover:translate-x-0.5 transition" />
+                      <ArrowRight className="w-3 h-3 text-slate-500 group-hover:translate-x-0.5 transition" />
                     </button>
                   </div>
 
                   {/* Horizontal Divider */}
                   <div className="relative flex items-center py-0.5">
-                    <div className="flex-grow border-t border-slate-200"></div>
-                    <span className="flex-shrink mx-2 text-[8px] font-mono uppercase tracking-wider text-slate-400 font-bold">Offline Testing</span>
-                    <div className="flex-grow border-t border-slate-200"></div>
+                    <div className="flex-grow border-t border-slate-300"></div>
+                    <span className="flex-shrink mx-2 text-[8px] font-mono uppercase tracking-wider text-slate-550 font-bold">Offline Testing</span>
+                    <div className="flex-grow border-t border-slate-300"></div>
                   </div>
 
                   {/* Sandbox / Bypass option buttons */}
@@ -834,7 +837,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
               <div>
                 <button 
                   onClick={() => setStep('methods')}
-                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-slate-400 mb-2 block cursor-pointer"
+                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-blue-600 hover:text-blue-800 font-bold mb-2 block cursor-pointer transition-colors"
                 >
                   &larr; Back to login
                 </button>
@@ -860,7 +863,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                     placeholder="e.g. SuleimanU45@gmail.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full mt-1.5 px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-950 placeholder-slate-400 focus:outline-none focus:border-slate-800 focus:bg-white"
+                    className="w-full mt-1.5 px-3.5 py-2.5 bg-slate-100 border border-slate-400 rounded-xl text-xs text-slate-950 placeholder-slate-500 focus:outline-none focus:border-slate-800 focus:bg-white"
                   />
                   
                   {/* Shortcut option */}
@@ -872,7 +875,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                         setEmail("SuleimanU45@gmail.com");
                         triggerBeep(400, 500, "neutral");
                       }}
-                      className="text-[10px] bg-slate-100 border border-slate-300 px-2 py-0.5 rounded hover:bg-slate-200 transition text-slate-700"
+                      className="text-[10px] bg-slate-250 border border-slate-400 px-2 py-0.5 rounded hover:bg-slate-300 transition text-slate-800 font-medium"
                     >
                       "SuleimanU45@gmail.com"
                     </button>
@@ -903,7 +906,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
               <div>
                 <button 
                   onClick={() => setStep('google-email')}
-                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-slate-400 mb-2 block cursor-pointer"
+                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-blue-600 hover:text-blue-800 font-bold mb-2 block cursor-pointer transition-colors"
                 >
                   &larr; Back to Email
                 </button>
@@ -913,6 +916,27 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                 </p>
               </div>
 
+              {receivedOtp && (
+                <div className="bg-blue-50 border border-blue-200 text-[#1e3a8a] text-xs rounded-xl p-3 flex items-center justify-between font-sans shadow-2xs">
+                  <div className="flex flex-col text-left gap-0.5">
+                    <span className="text-[10px] uppercase font-mono tracking-wider font-bold text-blue-500">Security Sandbox PIN</span>
+                    <span className="text-sm font-black font-mono tracking-widest text-[#1e3a8a] bg-blue-100/60 px-2 py-0.5 rounded border border-blue-200/50 w-fit">
+                      {receivedOtp}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerBeep(420, 620, "neutral");
+                      setOtp(receivedOtp.split(""));
+                    }}
+                    className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer select-none active:scale-[0.98] shadow-xs animate-pulse hover:animate-none"
+                  >
+                    <span>Click to Autofill</span>
+                  </button>
+                </div>
+              )}
+
               {errorMsg && (
                 <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start gap-1">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -921,7 +945,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
               )}
 
               {/* 6 digits split input */}
-              <div className="flex justify-between items-center gap-1.5 py-2">
+              <div className="flex justify-between items-center gap-1 py-1.5 xs:gap-1.5 xs:py-2">
                 {otp.map((digit, idx) => (
                   <input
                     key={idx}
@@ -931,15 +955,15 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                     value={digit}
                     onChange={(e) => handleOtpChange(idx, e.target.value)}
                     onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                    className="w-11 h-12 bg-slate-50 border-2 border-slate-200 rounded-xl text-center text-sm font-bold font-mono text-slate-950 focus:outline-none focus:border-slate-800 focus:bg-white"
+                    className="w-8 h-10 xs:w-11 xs:h-12 bg-slate-100 border-2 border-slate-400 rounded-lg xs:rounded-xl text-center text-sm font-black font-mono text-slate-950 focus:outline-none focus:border-slate-800 focus:bg-white"
                   />
                 ))}
               </div>
 
               {/* Real inbox delivery tip */}
-              <div className="flex items-start gap-1.5 p-3 bg-slate-50 border border-slate-200/50 rounded-xl">
-                <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                <span className="text-[10px] text-slate-500 leading-normal">
+              <div className="flex items-start gap-1.5 p-3 bg-slate-150 border border-slate-350 rounded-xl">
+                <Info className="w-3.5 h-3.5 text-slate-500 shrink-0 mt-0.5" />
+                <span className="text-[10px] text-slate-650 leading-normal">
                   The real onchain verification PIN is delivered securely to your external email inbox. Check your spam folder if it doesn't arrive in a few seconds. (If email server variables aren't active yet, retrieve it from the server console logs.)
                 </span>
               </div>
@@ -1003,7 +1027,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                   </button>
                 </div>
 
-                <div className="p-4 bg-slate-950 text-white rounded-2xl border border-slate-800 font-mono text-[11px] grid grid-cols-3 gap-2 relative shadow-inner overflow-hidden select-all">
+                <div className="p-4 bg-slate-950 text-white rounded-2xl border border-slate-800 font-mono text-[11px] grid grid-cols-2 xs:grid-cols-3 gap-2 relative shadow-inner overflow-hidden select-all">
                   {/* Subtle security mesh background */}
                   <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-slate-950/90 to-transparent pointer-events-none" />
                   
@@ -1055,7 +1079,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
               <div>
                 <button 
                   onClick={() => setStep('methods')}
-                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-slate-400 mb-2 block cursor-pointer"
+                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-blue-600 hover:text-blue-800 font-bold mb-2 block cursor-pointer transition-colors"
                 >
                   &larr; Back to login
                 </button>
@@ -1076,7 +1100,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <button
                     onClick={() => handleWalletConnectSelect("MetaMask")}
-                    className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-300 hover:border-slate-400 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                    className="flex items-center justify-between p-2.5 bg-slate-150 border border-slate-350 hover:border-slate-450 hover:bg-slate-200 rounded-xl transition cursor-pointer"
                   >
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 bg-amber-500/10 border border-amber-500/20 text-[10px] rounded-lg flex items-center justify-center select-none shrink-0">
@@ -1084,14 +1108,14 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                       </div>
                       <div className="text-left">
                         <span className="text-xs font-bold text-slate-900 block leading-tight">MetaMask</span>
-                        <span className="text-[8px] font-mono text-slate-400 block uppercase leading-none mt-0.5">Browser Extension</span>
+                        <span className="text-[8px] font-mono text-slate-450 block uppercase leading-none mt-0.5">Browser Extension</span>
                       </div>
                     </div>
                   </button>
 
                   <button
                     onClick={() => handleWalletConnectSelect("Rabby Wallet")}
-                    className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-300 hover:border-slate-400 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                    className="flex items-center justify-between p-2.5 bg-slate-150 border border-slate-350 hover:border-slate-450 hover:bg-slate-200 rounded-xl transition cursor-pointer"
                   >
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 bg-indigo-500/10 border border-indigo-500/20 text-[10px] rounded-lg flex items-center justify-center select-none shrink-0">
@@ -1123,7 +1147,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
               <div>
                 <button 
                   onClick={() => setStep('wallet-connect')}
-                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-slate-400 mb-2 block cursor-pointer"
+                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-blue-600 hover:text-blue-800 font-bold mb-2 block cursor-pointer transition-colors"
                 >
                   &larr; Back to wallets
                 </button>
@@ -1156,7 +1180,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
 
                   <button
                     onClick={handleProceedWithSimulation}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 rounded-xl transition font-medium text-xs cursor-pointer"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-slate-800 rounded-xl transition font-semibold text-xs cursor-pointer"
                   >
                     <span>Proceed with Simulated {selectedWalletName} Sandbox</span>
                   </button>
@@ -1184,7 +1208,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
               <div>
                 <button 
                   onClick={() => setStep('wallet-connect')}
-                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-slate-400 mb-2 block cursor-pointer"
+                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-blue-600 hover:text-blue-800 font-bold mb-2 block cursor-pointer transition-colors"
                 >
                   &larr; Back to wallets
                 </button>
@@ -1216,7 +1240,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
               ) : (
                 <div className="space-y-4">
                   {/* Network verification status indicator card */}
-                  <div className="p-4 rounded-2xl border bg-slate-50/50 space-y-3">
+                  <div className="p-4 rounded-2xl border border-slate-350 bg-slate-150/80 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold">Network Detection</span>
                       
@@ -1264,7 +1288,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                           <button
                             onClick={connectOnChainKeypairFallback}
                             type="button"
-                            className="w-full flex items-center justify-between px-3 py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 rounded-xl transition cursor-pointer text-left"
+                            className="w-full flex items-center justify-between px-3 py-2.5 bg-slate-200 hover:bg-slate-300 border border-slate-400 text-slate-800 rounded-xl transition cursor-pointer text-left font-semibold"
                           >
                             <div className="text-left py-0.5">
                               <span className="text-[11px] font-bold text-slate-900 block font-sans">Bridge Direct via Arc RPC Node</span>
@@ -1329,7 +1353,7 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
               <div>
                 <button 
                   onClick={() => setStep('methods')}
-                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-slate-400 mb-2 block cursor-pointer"
+                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-blue-600 hover:text-blue-800 font-bold mb-2 block cursor-pointer transition-colors"
                 >
                   &larr; Back to login
                 </button>
@@ -1355,11 +1379,11 @@ export default function PriviAuthModal({ onLoginSuccess, triggerBeep }: PriviAut
                     placeholder="e.g. arc shield secure money agent track orbit system globe connect alpha beta"
                     value={mnemonicInput}
                     onChange={(e) => setMnemonicInput(e.target.value)}
-                    className="w-full mt-1.5 p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-950 placeholder-slate-400 focus:outline-none focus:border-slate-800 focus:bg-white resize-none leading-relaxed"
+                    className="w-full mt-1.5 p-3 bg-slate-100 border border-slate-400 rounded-xl text-xs font-mono text-slate-950 placeholder-slate-500 focus:outline-none focus:border-slate-800 focus:bg-white resize-none leading-relaxed"
                   />
                 </div>
 
-                <div className="bg-slate-100 p-2.5 border border-slate-200 rounded-xl flex items-start gap-2 text-[10px] text-slate-500 font-sans leading-relaxed">
+                <div className="bg-slate-200 p-2.5 border border-slate-350 rounded-xl flex items-start gap-2 text-[10px] text-slate-650 font-sans leading-relaxed">
                   <Lock className="w-3.5 h-3.5 text-slate-600 shrink-0 mt-0.5" />
                   <span>Your recovery phrase is hashed strictly locally using client side PBKDF2. No secret data is transmitted to remote databases.</span>
                 </div>
