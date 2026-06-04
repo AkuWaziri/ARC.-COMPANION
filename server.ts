@@ -377,14 +377,14 @@ app.post("/api/auth/verify-otp", (req, res) => {
   
   const cleanEmail = email.trim().toLowerCase();
   const cleanCode = code.trim();
+  
   const record = otpStore[cleanEmail];
   
   if (!record) {
-    return res.status(400).json({ error: "No active verification handshake session found for this email." });
+    return res.status(400).json({ error: "No active cryptographic verification session found for this email." });
   }
   
-  // Allow the master bypass pin 562140 to remain a valid testing asset
-  if (record.code !== cleanCode && cleanCode !== "562140") {
+  if (record.code !== cleanCode) {
     return res.status(400).json({ error: "The verification PIN entered is invalid. Please try again or click Autofill." });
   }
   

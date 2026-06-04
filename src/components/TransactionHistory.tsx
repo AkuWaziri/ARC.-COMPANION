@@ -158,7 +158,7 @@ export default function TransactionHistory({ transactions, onRefresh }: Transact
                           tx.isLocalLedger ? (
                             <span 
                               className="inline-flex items-center gap-1 text-[9px] text-slate-500 font-mono border border-slate-200 rounded px-2 py-0.5 bg-slate-100 shadow-3xs" 
-                              title="Secure Offline Local Handshake (No real onchain txn broadcasted)"
+                              title="Secure Local Off-Chain Settlement (Executed locally inside sandboxed user node)"
                             >
                               <span>Local Ledger</span>
                             </span>
@@ -238,7 +238,7 @@ export default function TransactionHistory({ transactions, onRefresh }: Transact
                       tx.isLocalLedger ? (
                         <div 
                           className="flex items-center gap-1 text-[8px] text-slate-500 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.2 select-none font-mono"
-                          title="Secure Offline Local Handshake (No real onchain txn broadcasted)"
+                          title="Secure Local Off-Chain Settlement (Executed locally inside sandboxed user node)"
                         >
                           <span>Local Ledger</span>
                         </div>

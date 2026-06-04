@@ -33,7 +33,7 @@ import WalletCard from "./components/WalletCard";
 import ContactsDatabase from "./components/ContactsDatabase";
 import SecurityConsole from "./components/SecurityConsole";
 import TransactionHistory from "./components/TransactionHistory";
-import PriviAuthModal from "./components/PriviAuthModal";
+import EmailAuthModal from "./components/EmailAuthModal";
 import { Message, WalletState, Contact, Transaction, SecurityConfig } from "./types";
 
 export default function App() {
@@ -357,7 +357,7 @@ export default function App() {
       addSecurityLog("Injected extension session active. Triggering automatic connection switch to Arc Testnet...");
       await promptAddArcNetwork();
     } else {
-      addSecurityLog("Secure handshake finalized.");
+      addSecurityLog("Secure cryptographic authentication finalized.");
     }
   };
 
@@ -1465,9 +1465,9 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Privi Auth Modal Portal overlay */}
+      {/* Email / Gmail Auth Modal Portal overlay */}
       {!wallet.isConnected && (
-        <PriviAuthModal 
+        <EmailAuthModal 
           onLoginSuccess={handleLoginSuccess}
           triggerBeep={triggerSynthBeep}
         />
