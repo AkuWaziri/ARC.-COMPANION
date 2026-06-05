@@ -1298,6 +1298,66 @@ export default function App() {
                                     </div>
                                   </div>
                                 )}
+
+                                {/* Interactive UI Insufficient Gas / Funds Help Card inline */}
+                                {(msg.status === "failed" || msg.text?.toLowerCase().includes("insufficient funds")) && (
+                                  <div className="mt-2.5 p-3 rounded-xl bg-rose-50 border-2 border-rose-300 text-slate-900 space-y-2.5 font-sans shadow-2xs">
+                                    <div className="flex items-center justify-between border-b border-rose-100 pb-1.5 flex-wrap gap-1">
+                                      <div className="flex items-center gap-1.5 text-rose-800 font-bold text-[10.5px] uppercase tracking-wider">
+                                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                                        <span>Gas Faucet & Sandbox Guide</span>
+                                      </div>
+                                      <span className="text-[8px] px-1.5 py-0.2 bg-rose-100 border border-rose-250 text-rose-800 rounded-full font-mono font-bold uppercase">low funds warning</span>
+                                    </div>
+
+                                    <div className="text-[10px] text-slate-700 leading-normal space-y-1.5">
+                                      <p>
+                                        Your wallet address <strong className="font-mono bg-white px-1 border border-slate-200 rounded text-[9px] select-all">{wallet?.address}</strong> on the live Arc Testnet has no native tokens to pay for gas.
+                                      </p>
+                                      <p className="font-semibold text-slate-900">Choose one of the swift pathways below to resolve this:</p>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1.5">
+                                      {/* Pathway 1: Toggle simulated mode */}
+                                      <button
+                                        onClick={async () => {
+                                          triggerSynthBeep(520, 1000, "success");
+                                          setNetworkMode('simulated');
+                                          // Clean message list or inform success
+                                          setMessages(prev => [
+                                            ...prev,
+                                            {
+                                              id: `m-simulated-${Date.now()}`,
+                                              sender: "agent",
+                                              text: "⚡ Instantly switched back to Simulated Sandbox Ledger. Unlimited gas-free mock transactions are now fully enabled with $150 USDC starting balance! Try repeating your transaction now.",
+                                              timestamp: new Date().toISOString(),
+                                              status: "completed"
+                                            }
+                                          ]);
+                                        }}
+                                        className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-[10px] rounded-lg cursor-pointer transition active:scale-[0.98] shadow-3xs"
+                                      >
+                                        <span>Switch to Simulated Mode ⚡</span>
+                                      </button>
+
+                                      {/* Pathway 2: Open official faucet */}
+                                      <a
+                                        href="https://faucet.testnet.arc.network"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={() => {
+                                          triggerSynthBeep(600, 800, "neutral");
+                                          if (wallet?.address) {
+                                            navigator.clipboard.writeText(wallet.address);
+                                          }
+                                        }}
+                                        className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] rounded-lg cursor-pointer transition text-center active:scale-[0.98] shadow-3xs"
+                                      >
+                                        <span>Claim Free Arc Faucet Gas 🚀</span>
+                                      </a>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
 

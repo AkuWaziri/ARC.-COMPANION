@@ -103,13 +103,13 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
             {/* Trigger Faucet Button */}
             {networkMode === "live" ? (
               <a
-                href="https://faucet.circle.com/"
+                href="https://faucet.testnet.arc.network/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-850 text-white font-medium font-sans text-xs rounded-lg transition-all duration-150 active:scale-[0.99] shadow-xs cursor-pointer text-center select-none"
+                className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium font-sans text-xs rounded-lg transition-all duration-150 active:scale-[0.99] shadow-xs cursor-pointer text-center select-none"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-                <span className="font-bold">Request testnet gas / USDC</span>
+                <span className="font-bold">Claim Arc Testnet Faucet Gas / USDC ⚡</span>
               </a>
             ) : (
               <button
@@ -125,7 +125,7 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
             {/* Note about secure environment */}
             <div className="p-2.5 bg-blue-50 border border-blue-200 text-blue-800 text-[10px] rounded-lg font-sans leading-relaxed text-left space-y-1.5">
               <div>
-                <strong>Real Arc Testnet Faucet:</strong> Click copy on your <strong>Address</strong> key, then visit the official <a href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold">Circle Testnet Faucet</a> to receive real gas assets to play with!
+                <strong>Official Arc Testnet Faucet:</strong> Click copy on your <strong>Address</strong> above, then visit the official <a href="https://faucet.testnet.arc.network/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold">Arc Testnet Faucet</a> to receive native gas/test assets!
               </div>
               <div className="flex items-center gap-1 text-[9px] text-slate-500 font-mono pt-1 border-t border-blue-105">
                 <Award className="w-3 h-3 text-slate-500" />
