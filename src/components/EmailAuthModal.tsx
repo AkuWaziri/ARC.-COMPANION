@@ -18,6 +18,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { WalletState } from "../types";
 import { ethers } from "ethers";
+import robotAvatar from "../assets/images/friendly_bot_logo_1780649113441.png";
 
 interface EmailAuthModalProps {
   onLoginSuccess: (wallet: WalletState, secureLogs: string[], userEmail?: string) => void;
@@ -84,7 +85,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
       }
     }
   }, [step]);
-  
+
   const [copied, setCopied] = useState(false);
   const [copiedDappUrl, setCopiedDappUrl] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -93,6 +94,15 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
   const [receivedOtp, setReceivedOtp] = useState("");
   const [showEmailToast, setShowEmailToast] = useState(false);
   const [showCodeAssistant, setShowCodeAssistant] = useState(true);
+
+  useEffect(() => {
+    if (showEmailToast) {
+      const timer = setTimeout(() => {
+        setShowEmailToast(false);
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [showEmailToast]);
 
   // Focus utility for 6-digit OTP
   const handleOtpChange = (index: number, value: string) => {
@@ -386,33 +396,175 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
     }
   };
 
-  const handleWalletConnectSelect = (walletName: string) => {
+  const handleWalletConnectSelect = async (walletName: string) => {
     setSelectedWalletName(walletName);
     setErrorMsg("");
-    setStep('wallet-prompt');
     triggerBeep(480, 580, "neutral");
 
-    if (isMobileDevice()) {
-      triggerMobileWalletDeepLink(walletName);
+    const hasEthereum = typeof window !== "undefined" && (window as any).ethereum;
+    if (hasEthereum) {
+      // In-built mobile Web3 browser or desktop extension is active! 
+      // Proceed to the status prompt and trigger connection natively immediately.
+      setStep('wallet-prompt');
+      await triggerNativeWalletConnect(walletName);
+    } else {
+      // No injected provider. Proceed to prompt.
+      setStep('wallet-prompt');
+      if (isMobileDevice()) {
+        // Redirect standard mobile browser to wallet app
+        triggerMobileWalletDeepLink(walletName);
+      }
     }
   };
 
-  const triggerAddOrSwitchChain = async () => {
-    if (typeof window === "undefined" || !(window as any).ethereum) return;
+  const triggerAddOrSwitchChain = async (): Promise<boolean> => {
+    if (typeof window === "undefined" || !(window as any).ethereum) return false;
+    setErrorMsg("");
     try {
+      // Attempt switch first
       await (window as any).ethereum.request({
-        method: 'wallet_addEthereumChain',
-        params: [{
-          chainId: '0x4cef52', // 5042002 in hex
-          chainName: 'Arc Testnet',
-          nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-          rpcUrls: ['https://rpc.testnet.arc.network'],
-          blockExplorerUrls: ['https://testnet.arcscan.app']
-        }]
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x4cef52' }] // 5042002 in hex
       });
       triggerBeep(600, 1200, "success");
-    } catch (addError) {
-      console.error("Could not add chain:", addError);
+      
+      if (typeof (window as any).ethereum.request === 'function') {
+        const currentChain = await (window as any).ethereum.request({ method: 'eth_chainId' });
+        setWalletChainId(currentChain);
+      }
+      return true;
+    } catch (switchError: any) {
+      console.warn("Switch chain failed, attempting to add standard Arc Testnet definition:", switchError);
+      
+      // Error code 4902 is standard for chain not added.
+      // But some other providers use different error formats or custom messages, so we catch generally.
+      try {
+        await (window as any).ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: '0x4cef52', // 5042002 in hex
+            chainName: 'Arc Testnet',
+            nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+            rpcUrls: ['https://rpc.testnet.arc.network'],
+            blockExplorerUrls: ['https://testnet.arcscan.app']
+          }]
+        });
+        
+        triggerBeep(600, 1200, "success");
+
+        // Request switch again to make sure it successfully migrated
+        try {
+          await (window as any).ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: '0x4cef52' }]
+          });
+        } catch (retryErr) {
+          console.warn("Chain switch retry failed:", retryErr);
+        }
+
+        if (typeof (window as any).ethereum.request === 'function') {
+          const currentChain = await (window as any).ethereum.request({ method: 'eth_chainId' });
+          setWalletChainId(currentChain);
+        }
+        return true;
+      } catch (addError: any) {
+        console.error("Could not add chain:", addError);
+        setErrorMsg(`Failed to configure Arc Testnet network in your wallet: ${addError.message || addError}`);
+        triggerBeep(260, 130, "fail");
+        return false;
+      }
+    }
+  };
+
+  const triggerNativeWalletConnect = async (walletName: string) => {
+    setIsLoading(true);
+    setErrorMsg("");
+    triggerBeep(520, 800, "neutral");
+
+    if (typeof window === "undefined" || !(window as any).ethereum) {
+      setErrorMsg("No Web3 provider detected in your current browser session.");
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      // 1. Force wallet connection authorization popup (security requirement to prevent passive silent login)
+      try {
+        await (window as any).ethereum.request({
+          method: 'wallet_requestPermissions',
+          params: [{ eth_accounts: {} }]
+        });
+      } catch (permErr: any) {
+        console.warn("wallet_requestPermissions rejected or unsupported:", permErr);
+        if (permErr?.code === 4001) {
+          throw new Error("Connection request rejected by user in wallet.");
+        }
+      }
+
+      // 2. Request account access
+      const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
+      const address = accounts && accounts[0];
+      
+      if (!address) {
+        throw new Error("No authorized accounts returned from wallet.");
+      }
+
+      // 3. Refresh/Verify the network setting
+      let currentChainId = await (window as any).ethereum.request({ method: 'eth_chainId' });
+      setWalletChainId(currentChainId);
+
+      // Arc chain: 5042002 is '0x4cef52'
+      const targetChainHex = '0x4cef52';
+      const isCorrectChain = currentChainId && (
+        currentChainId.toLowerCase() === targetChainHex || 
+        currentChainId === "5042002" || 
+        currentChainId.toLowerCase() === "0x04cef52"
+      );
+
+      if (!isCorrectChain) {
+        const switchSuccess = await triggerAddOrSwitchChain();
+        if (!switchSuccess) {
+          setIsLoading(false);
+          return; // Allow the user to manually trigger the network switch on step screen
+        }
+      }
+
+      // 4. Fetch connected account balance
+      let balance = 150.00;
+      try {
+        const responseBalance = await fetch(`/api/wallet/balance/${address}`);
+        if (responseBalance.ok) {
+          const balanceData = await responseBalance.json();
+          balance = balanceData.balance ?? 150.00;
+        }
+      } catch (bErr) {
+        console.warn("Could not query chain balance:", bErr);
+      }
+
+      const connectedWallet: WalletState = {
+        address: address,
+        balance: balance,
+        privateKey: "Hardware/Extension Key", // Crucial: sets isExtensionWallet = true for real extension transaction signing.
+        seedPhrase: `Instantiated active native extension link to ${walletName}. Managed securely via your wallet provider.`,
+        isConnected: true
+      };
+
+      setIsLoading(false);
+      triggerBeep(520, 1040, "success");
+
+      const secureLogs = [
+        `Sync-connected natively with ${walletName} Web3 provider.`,
+        `EVM public address: ${address}`,
+        `Network active: Arc Testnet (5042002)`,
+        `Connected securely on correct RPC (https://rpc.testnet.arc.network).`
+      ];
+
+      onLoginSuccess(connectedWallet, secureLogs);
+    } catch (err: any) {
+      console.error("Native wallet connection failed:", err);
+      setErrorMsg(`Wallet connection failed: ${err.message || err}`);
+      triggerBeep(260, 130, "fail");
+      setIsLoading(false);
     }
   };
 
@@ -497,7 +649,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
       <div 
         id="email-auth-box" 
         className={`w-full bg-white border border-slate-400 rounded-3xl p-4 sm:p-6 shadow-2xl relative max-h-[88vh] sm:max-h-[85vh] overflow-y-auto transition-all duration-300 ${
-          step === 'methods' || step === 'wallet-connect' ? 'max-w-2xl' : 'max-w-md'
+          step === 'methods' || step === 'wallet-connect' || step === 'email-otp' || step === 'email-passphrase' ? 'max-w-2xl' : 'max-w-md'
         }`}
       >
         
@@ -543,10 +695,10 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Lock className="w-4 h-4 text-slate-800" />
-            <span className="text-[10px] font-mono tracking-widest font-bold uppercase text-slate-500">Secure Cryptographic Authentication</span>
+            <span className="text-[10px] font-mono tracking-widest font-bold uppercase text-slate-500">Secure Authentication</span>
           </div>
           <div className="flex items-center gap-1.5 bg-slate-200 px-2.5 py-1 rounded-full border border-slate-400 text-[9px] font-mono font-bold text-slate-800">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             <span>Secure Tunnel ACTIVE</span>
           </div>
         </div>
@@ -572,7 +724,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
                   <div className="space-y-4 relative z-10">
                     <div>
                       <h1 className="text-xl font-bold font-display text-slate-950 tracking-tight flex items-center gap-1.5">
-                        <span className="bg-gradient-to-r from-slate-950 to-slate-850">Get Decentralized Access</span>
+                        <span>Get Decentralized Access</span>
                       </h1>
                       <p className="text-[10px] text-slate-600 mt-0.5 leading-relaxed uppercase tracking-wider font-mono font-bold">
                         Arc Enclave Gateway
@@ -581,9 +733,14 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
 
                     <div className="py-5 flex flex-col items-center justify-center text-center bg-white border border-slate-300 rounded-2xl shadow-xs">
                       <div className="relative mb-2.5">
-                        <div className="absolute inset-0 bg-rose-500/10 rounded-2xl blur-md scale-110 animate-pulse" />
-                        <div className="w-12 h-12 rounded-2xl bg-slate-950 text-white flex items-center justify-center shadow-lg relative z-10 border border-slate-800">
-                          <Mail className="w-6 h-6 stroke-[2]" />
+                        <div className="absolute inset-0 bg-blue-500/10 rounded-2xl blur-md scale-110 animate-pulse" />
+                        <div className="w-14 h-14 rounded-2xl bg-slate-950 overflow-hidden flex items-center justify-center shadow-lg relative z-10 border border-slate-800">
+                          <img 
+                            src={robotAvatar} 
+                            alt="Arc Companion Robot Logo" 
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer" 
+                          />
                         </div>
                       </div>
                       
@@ -591,7 +748,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
                         ARC COMPANION
                       </span>
                       <span className="text-[9.5px] text-slate-500 font-semibold mt-1 max-w-[180px] leading-tight select-none">
-                        Your secure helper for real-time USDC transactions, escrow, and enclaves on Arc Network.
+                        Your AI Finance Intelligent for Everything USDC. With Chat & Voice Automation. Investment. Analytic. Trade. Wallet & More.
                       </span>
                     </div>
                   </div>
@@ -717,58 +874,162 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
           {step === 'email-otp' && (
             <motion.div
               key="step-email-otp"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="space-y-4 text-left"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch text-left"
             >
-              <div>
-                <button 
-                  onClick={() => setStep('email-input')}
-                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-blue-600 hover:text-blue-800 font-bold mb-2 block cursor-pointer transition-colors"
-                >
-                  &larr; Back to Email
-                </button>
-                <h2 className="text-lg font-bold font-display text-slate-950">Verify Your Identity</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Confirm the 6-digit cryptographic verification code dispatched to <strong className="text-slate-900 font-mono">{email}</strong>.
-                </p>
+              {/* Left Column: Form Details */}
+              <div className="flex flex-col justify-between space-y-4">
+                <div className="space-y-3">
+                  <div>
+                    <button 
+                      onClick={() => setStep('email-input')}
+                      className="text-[10px] hover:underline uppercase tracking-wider font-mono text-blue-600 hover:text-blue-800 font-bold mb-2 block cursor-pointer transition-colors"
+                    >
+                      &larr; Back to Email
+                    </button>
+                    <h2 className="text-lg font-bold font-display text-slate-950">Verify Your Identity</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Confirm the 6-digit cryptographic verification code dispatched to <strong className="text-slate-900 font-mono">{email}</strong>.
+                    </p>
+                  </div>
+
+                  {/* Compact Mobile-Only Live Code Assistant */}
+                  <div className="block md:hidden bg-slate-50 border border-slate-300 rounded-2xl p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-800 font-sans">
+                        <span>🔑 Live OTP Assistant</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="w-1.2 h-1.2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-[8px] font-mono font-black text-emerald-600 uppercase">STANDBY SECURE</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-xl p-2.5 shadow-3xs">
+                      {receivedOtp ? (
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div>
+                            <span className="text-[8px] font-mono text-slate-400 uppercase block font-bold leading-none">Session Code</span>
+                            <span className="text-xl font-black font-mono tracking-widest text-[#1e3a8a] select-all block leading-none mt-1.5">
+                              {receivedOtp}
+                            </span>
+                          </div>
+                          
+                          <button
+                            type="button"
+                            onClick={() => {
+                              triggerBeep(520, 1000, "success");
+                              setOtp(receivedOtp.split(""));
+                              setErrorMsg("");
+                            }}
+                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-750 text-white rounded-lg text-[9px] font-bold transition flex items-center gap-1 cursor-pointer select-none"
+                          >
+                            <span>Autofill & Go⚡</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="py-2 text-center">
+                          <p className="text-[9px] text-slate-500 italic">
+                            Waiting for email code generation...
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {errorMsg && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start gap-1">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{errorMsg}</span>
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  {/* 6 Grid layout digits */}
+                  <div className="flex justify-between items-center gap-2">
+                    {otp.map((char, index) => (
+                      <input
+                        key={index}
+                        id={`otp-${index}`}
+                        type="text"
+                        maxLength={1}
+                        pattern="[0-9]*"
+                        inputMode="numeric"
+                        value={char}
+                        onChange={(e) => handleOtpChange(index, e.target.value)}
+                        onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                        className="w-10 h-11 sm:w-11 sm:h-12 bg-slate-100 border-2 border-slate-350 focus:border-slate-800 focus:bg-white text-center text-md sm:text-lg font-bold rounded-xl focus:outline-none transition-all text-slate-950"
+                      />
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={verifyOtpAndProceed}
+                    disabled={isLoading}
+                    className="w-full py-2.5 bg-slate-950 text-white hover:bg-slate-800 disabled:opacity-50 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-sm"
+                  >
+                    {isLoading ? "Validating security code..." : "Verify Cryptographic Identity"}
+                  </button>
+                </div>
               </div>
 
-              {errorMsg && (
-                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start gap-1">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{errorMsg}</span>
-                </div>
-              )}
+              {/* Right Column: Embedded Live Code Assistant */}
+              <div className="hidden md:flex bg-slate-50 border border-slate-300 rounded-2xl p-4 flex-col justify-between space-y-3">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-800 font-sans">
+                      <span>🔑 Live OTP Assistant</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-[8px] font-mono font-black text-emerald-600 uppercase">STANDBY SECURE</span>
+                    </div>
+                  </div>
 
-              <div className="space-y-4">
-                {/* 6 Grid layout digits */}
-                <div className="flex justify-between items-center gap-2">
-                  {otp.map((char, index) => (
-                    <input
-                      key={index}
-                      id={`otp-${index}`}
-                      type="text"
-                      maxLength={1}
-                      pattern="[0-9]*"
-                      inputMode="numeric"
-                      value={char}
-                      onChange={(e) => handleOtpChange(index, e.target.value)}
-                      onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                      className="w-12 h-12 bg-slate-100 border-2 border-slate-350 focus:border-slate-800 focus:bg-white text-center text-lg font-bold rounded-xl focus:outline-none transition-all text-slate-950"
-                    />
-                  ))}
+                  <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 shadow-3xs">
+                    {receivedOtp ? (
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div>
+                          <span className="text-[8px] font-mono text-slate-400 uppercase block font-bold leading-none">Session Code</span>
+                          <span className="text-xl font-black font-mono tracking-widest text-[#1e3a8a] select-all block leading-none mt-1.5">
+                            {receivedOtp}
+                          </span>
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerBeep(520, 1000, "success");
+                            setOtp(receivedOtp.split(""));
+                            setErrorMsg("");
+                          }}
+                          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-750 text-white rounded-lg text-[9px] font-bold transition flex items-center gap-1 cursor-pointer select-none"
+                        >
+                          <span>Autofill & Go⚡</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="py-2.5 text-center">
+                        <p className="text-[9.5px] text-slate-500 italic">
+                          Waiting for email code generation...
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={verifyOtpAndProceed}
-                  disabled={isLoading}
-                  className="w-full py-2.5 bg-slate-950 text-white hover:bg-slate-800 disabled:opacity-50 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-sm"
-                >
-                  {isLoading ? "Validating security code..." : "Verify Cryptographic Identity"}
-                </button>
+                <div className="pt-2.5 border-t border-slate-200 space-y-1 text-slate-500">
+                  <p className="text-[9.5px] leading-snug">
+                    👉 <strong>Sandbox Mail Assist:</strong> Your OTP session code is synced here immediately to eliminate mail friction inside the sandbox block.
+                  </p>
+                  <p className="text-[9px] leading-snug">
+                    No bypass is active; please submit the code inside the form.
+                  </p>
+                </div>
               </div>
             </motion.div>
           )}
@@ -780,82 +1041,91 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, y: -10 }}
-              className="space-y-4 text-left"
+              className="space-y-4 text-left font-sans"
             >
-              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl">
-                <div className="flex gap-2 items-center text-emerald-800">
-                  <ShieldCheck className="w-5 h-5" />
-                  <span className="text-xs font-bold font-display uppercase tracking-wider">Passphrase Created Successfully</span>
-                </div>
-                <p className="text-[11px] text-emerald-700 mt-1 leading-relaxed">
-                  Email authentication successful! Your secure cryptographic identity profile wallet is initialized.
-                </p>
-              </div>
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
+                {/* Left Column */}
+                <div className="md:col-span-7 flex flex-col justify-between space-y-3.5">
+                  <div className="space-y-3.5">
+                    <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-2xl shadow-3xs">
+                      <div className="flex gap-2 items-center text-emerald-800">
+                        <ShieldCheck className="w-4.5 h-4.5 shrink-0" />
+                        <span className="text-[11px] font-bold font-display uppercase tracking-wider">Passphrase Created Successfully</span>
+                      </div>
+                      <p className="text-[10px] text-emerald-700 mt-1 leading-relaxed">
+                        Email authentication successful! Your secure cryptographic identity profile wallet is initialized.
+                      </p>
+                    </div>
 
-              <div className="space-y-1">
-                <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">Assigned EVM compatible Address</div>
-                <div className="px-3 py-1.5 bg-slate-100 border border-slate-300 rounded-lg text-[9px] font-mono text-slate-700 select-all truncate">
-                  {generatedWallet.address}
-                </div>
-              </div>
+                    <div className="space-y-1">
+                      <div className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500">Assigned EVM compatible Address</div>
+                      <div className="px-3 py-2 bg-slate-100 border border-slate-300 rounded-xl text-[9px] font-mono text-slate-700 select-all truncate font-semibold">
+                        {generatedWallet.address}
+                      </div>
+                    </div>
+                  </div>
 
-              {/* Seed phrase display box */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">Security Recovery Passphrase</label>
+                  <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-2xl text-[9px] leading-relaxed flex items-start gap-1.5">
+                    <Info className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                    <span>
+                      ⚠️ <strong>Security Action Required:</strong> Jot down these 12 golden seed words or copy them to a secure location. If you sign in utilizing this email on another device, this master passphrase secures your assets!
+                    </span>
+                  </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="md:col-span-5 flex flex-col justify-between space-y-3.5">
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500">Security Recovery Passphrase</label>
+                      <button
+                        onClick={copyToClipboard}
+                        className="flex items-center gap-1 text-[9px] font-mono text-slate-500 hover:text-slate-950 transition font-bold cursor-pointer select-none"
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span className="text-emerald-700 font-bold">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copy Secret Phrase</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1.5 p-3.5 bg-slate-100 border border-slate-350 rounded-2xl shadow-3xs">
+                      {generatedWallet.seedPhrase.split(/\s+/).map((word, idx) => (
+                        <div 
+                          key={idx} 
+                          className="bg-white/95 border border-slate-300 rounded-lg py-1 px-1.5 text-[10px] font-mono text-slate-800 flex gap-1 items-center select-none"
+                        >
+                          <span className="text-slate-400 text-[8px] font-bold shrink-0">{idx + 1}.</span>
+                          <span className="font-bold text-slate-900">{word}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   <button
-                    onClick={copyToClipboard}
-                    className="flex items-center gap-1 text-[10px] font-mono text-slate-500 hover:text-slate-900 transition font-bold"
+                    type="button"
+                    onClick={() => {
+                      triggerBeep(600, 1500, "success");
+                      const secureLogs = [
+                        `Secure Enclave derived account with association: ${email}`,
+                        `Created secure credentials localized in browser profile.`,
+                        `USDC starting faucet credited ($150.00 Gas-Free testnet asset).`
+                      ];
+                      onLoginSuccess(generatedWallet, secureLogs, email);
+                    }}
+                    className="w-full py-2.5 bg-[#0d9488] hover:bg-[#0f766e] text-white text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer font-sans shadow-sm mt-auto"
                   >
-                    {copied ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span className="text-emerald-700 font-bold">Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Copy Secret Phrase</span>
-                      </>
-                    )}
+                    <span>Confirm Seed & Deploy Consoles 🚀</span>
                   </button>
                 </div>
-
-                <div className="grid grid-cols-3 gap-1.5 p-3.5 bg-slate-100 border border-slate-350 rounded-2xl">
-                  {generatedWallet.seedPhrase.split(/\s+/).map((word, idx) => (
-                    <div 
-                      key={idx} 
-                      className="bg-white/80 border border-slate-300 rounded-lg p-1 px-1.5 text-center text-[10px] font-mono text-slate-800 flex gap-1 select-none"
-                    >
-                      <span className="text-slate-400 text-[8px] mt-0.5">{idx + 1}.</span>
-                      <span className="font-bold">{word}</span>
-                    </div>
-                  ))}
-                </div>
               </div>
-
-              <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-2xl text-[9.5px] leading-relaxed flex items-start gap-1.5 font-sans">
-                <Info className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
-                <span>
-                  ⚠️ <strong>Security Action Required:</strong> Jot down these 12 golden seed words or copy them to a secure location. If you sign in utilizing this email on another device, this master passphrase secures your assets!
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  triggerBeep(600, 1500, "success");
-                  const secureLogs = [
-                    `Secure Enclave derived account with association: ${email}`,
-                    `Created secure credentials localized in browser profile.`,
-                    `USDC starting faucet credited ($150.00 Gas-Free testnet asset).`
-                  ];
-                  onLoginSuccess(generatedWallet, secureLogs, email);
-                }}
-                className="w-full py-2.5 bg-[#0d9488] hover:bg-[#0f766e] text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer font-sans shadow-sm"
-              >
-                <span>Confirm Secret Words & Deploy App Hub Console 🚀</span>
-              </button>
             </motion.div>
           )}
 
@@ -1085,38 +1355,38 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
                   </div>
                 ) : (walletChainId && (walletChainId.toLowerCase() === "0x4cef52" || walletChainId === "5042002" || walletChainId.toLowerCase() === "0x04cef52")) ? (
                   <div className="space-y-2">
-                    <p className="text-[11px] text-emerald-800 leading-normal">
+                    <p className="text-[11px] text-emerald-800 leading-normal font-sans font-medium">
                       ✅ Compatible <strong>Arc Testnet (0x4cef52)</strong> detected in your browser window extension profile! Ready to launch real blockchain operations on-chain.
                     </p>
                     
                     <button
-                      onClick={connectOnChainKeypairFallback}
+                      onClick={() => triggerNativeWalletConnect(selectedWalletName)}
                       disabled={isLoading}
-                      className="w-full flex items-center justify-between p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition font-sans font-bold text-xs cursor-pointer shadow-xs disabled:opacity-50"
+                      className="w-full flex items-center justify-between p-2.5 bg-slate-900 hover:bg-slate-850 text-white rounded-xl transition font-sans font-bold text-xs cursor-pointer shadow-sm disabled:opacity-50"
                     >
-                      <span>Authorize {selectedWalletName} Connection</span>
+                      {isLoading ? <span>Syncing Core Wallet...</span> : <span>Authorize & Connect {selectedWalletName} 🚀</span>}
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
                 ) : (
                   <div className="space-y-2.5 text-left">
-                    <p className="text-[11px] text-amber-800 leading-normal font-sans">
+                    <p className="text-[11px] text-amber-800 leading-normal font-sans font-medium">
                       ⚠️ Web3 connection detected on chain ID <strong>{parseInt(walletChainId, 16) || walletChainId || "unknown"}</strong>, which is not the required <strong>Arc Testnet (5042002)</strong>.
                     </p>
                     <div className="flex gap-1.5 flex-col">
                       <button
                         type="button"
                         onClick={triggerAddOrSwitchChain}
-                        className="w-full py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-[10px] transition cursor-pointer font-sans"
+                        className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition cursor-pointer font-sans shadow-sm"
                       >
-                        Auto Switch Network in Ethers Profile
+                        Auto Switch Network inside Wallet 🌟
                       </button>
                       <button
                         type="button"
-                        onClick={connectOnChainKeypairFallback}
-                        className="w-full py-1.5 px-2 bg-slate-200 hover:bg-slate-300 border border-slate-350 text-slate-800 font-bold rounded-lg text-[10px] transition cursor-pointer font-sans"
+                        onClick={() => triggerNativeWalletConnect(selectedWalletName)}
+                        className="w-full py-1.5 px-3 bg-slate-200 hover:bg-slate-300 border border-slate-350 text-slate-800 font-bold rounded-xl text-[10.5px] transition cursor-pointer font-sans"
                       >
-                        Let Me Continue Anyway
+                        Let Me Continue & Connect Anyway
                       </button>
                     </div>
                   </div>
@@ -1180,91 +1450,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
 
         </AnimatePresence>
 
-        {/* Passcode Mini Tab Assistant Block */}
-        {step === 'email-otp' && (
-          <div className="mt-5 pt-4 border-t border-slate-200">
-            <div className="flex items-center justify-between pointer-events-auto">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowCodeAssistant(!showCodeAssistant);
-                  triggerBeep(450, 550, "neutral");
-                }}
-                className="flex items-center gap-1.5 text-[11px] font-bold text-blue-600 hover:text-blue-800 cursor-pointer select-none font-sans"
-              >
-                <span>🔑 Live OTP Code Assistant</span>
-                <span className="text-[10px] bg-blue-100 text-blue-700 font-mono px-1.5 py-0.2 rounded-full font-bold">
-                  {showCodeAssistant ? "Hide" : "Open"}
-                </span>
-              </button>
-              <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                <span className="text-[9px] font-mono font-black text-emerald-600 uppercase">ACTIVE Session Monitor</span>
-              </div>
-            </div>
 
-            <AnimatePresence>
-              {showCodeAssistant && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden mt-2.5"
-                >
-                  <div className="bg-slate-50 border border-slate-350 rounded-2xl p-3 space-y-2">
-                    {receivedOtp ? (
-                      <div className="flex items-center justify-between">
-                        <div className="text-left">
-                          <span className="text-[8px] font-mono text-slate-450 uppercase block font-bold leading-none">Session Code</span>
-                          <span className="text-lg font-black font-mono tracking-widest text-[#1e3a8a] select-all block leading-none mt-1">
-                            {receivedOtp}
-                          </span>
-                        </div>
-                        
-                        <div className="flex gap-1.5">
-                          {/* Autofill Verification Passcode Button */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              triggerBeep(520, 1000, "success");
-                              setOtp(receivedOtp.split(""));
-                              setErrorMsg("");
-                            }}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[9.5px] font-bold transition flex items-center gap-1 cursor-pointer select-none"
-                          >
-                            <span>1-Tap Autofill & Go ⚡</span>
-                          </button>
-                          
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(receivedOtp);
-                              triggerBeep(650, 750, "neutral");
-                            }}
-                            className="p-1 px-2 bg-white hover:bg-slate-100 border border-slate-330 text-slate-600 rounded-lg text-[9.5px] transition cursor-pointer font-semibold"
-                            title="Copy PIN code"
-                          >
-                            Copy Code
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="py-2.5 text-center">
-                        <p className="text-[10px] text-slate-500 leading-normal italic">
-                          Waiting for your email submission to generate the secure session code...
-                        </p>
-                      </div>
-                    )}
-                    
-                    <p className="text-[9.5px] text-slate-500 leading-normal font-sans">
-                      👉 <strong>Web3 Sandbox Compliance:</strong> The server's freshly generated 6-digit session confirmation OTP displays here in real-time above to eliminate sandbox & mobile mail delivery friction. No bypassing codes are active; you must enter this exact dynamic code to sign up.
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        )}
 
         {/* Secure Lock Badge at Footer */}
         <div className="mt-6 pt-4 border-t border-slate-200 flex items-center justify-between text-[9px] font-mono text-slate-400 select-none uppercase">

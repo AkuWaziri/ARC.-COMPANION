@@ -34,6 +34,7 @@ import ContactsDatabase from "./components/ContactsDatabase";
 import SecurityConsole from "./components/SecurityConsole";
 import TransactionHistory from "./components/TransactionHistory";
 import EmailAuthModal from "./components/EmailAuthModal";
+import robotAvatar from "./assets/images/friendly_bot_logo_1780649113441.png";
 import { Message, WalletState, Contact, Transaction, SecurityConfig } from "./types";
 
 export default function App() {
@@ -207,33 +208,50 @@ export default function App() {
     syncMode();
   }, [networkMode]);
 
-  // Account change listeners for injected wallet MetaMask
+  // Account and network change listeners for injected extension wallets (MetaMask/Rabby/Trust)
   useEffect(() => {
     if (typeof window !== "undefined" && (window as any).ethereum) {
       const handleAccounts = async (accounts: string[]) => {
-        if (accounts.length > 0 && wallet.privateKey === "WalletConnect Enclave") {
-          addSecurityLog(`Detected extension account shift: ${accounts[0]}`);
-          const updatedWallet = {
-            ...wallet,
-            address: accounts[0]
-          };
-          setWallet(updatedWallet);
-          localStorage.setItem("arc_wallet_session", JSON.stringify(updatedWallet));
-          try {
-            await fetch("/api/wallet/auth", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(updatedWallet)
-            });
-            await fetchWallet(updatedWallet.address);
-          } catch (e) {}
+        if (accounts.length === 0) {
+          addSecurityLog("Manual disconnect or lock detected from Web3 extension. Severing session.");
+          handleLogOut();
+          return;
         }
+
+        const isExtensionSession = wallet.privateKey === "WalletConnect Enclave" || wallet.privateKey === "Hardware/Extension Key";
+        if (accounts.length > 0 && isExtensionSession) {
+          if (wallet.address.toLowerCase() !== accounts[0].toLowerCase()) {
+            addSecurityLog(`Detected extension account shift: ${accounts[0]}`);
+            const updatedWallet = {
+              ...wallet,
+              address: accounts[0]
+            };
+            setWallet(updatedWallet);
+            localStorage.setItem("arc_wallet_session", JSON.stringify(updatedWallet));
+            try {
+              await fetch("/api/wallet/auth", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(updatedWallet)
+              });
+              await fetchWallet(updatedWallet.address);
+            } catch (e) {}
+          }
+        }
+      };
+
+      const handleChain = (chainIdHex: string) => {
+        addSecurityLog(`Injected extension chain changed to ${chainIdHex}. Refreshing context...`);
+        // Soft reload ensures Ethers providers and hooks align with new network without state corruption
+        window.location.reload();
       };
       
       const provider = (window as any).ethereum;
       provider.on('accountsChanged', handleAccounts);
+      provider.on('chainChanged', handleChain);
       return () => {
         provider.removeListener('accountsChanged', handleAccounts);
+        provider.removeListener('chainChanged', handleChain);
       };
     }
   }, [wallet]);
@@ -876,6 +894,12 @@ export default function App() {
       addSecurityLog(`Signing abort: ${err.message}`);
       triggerSynthBeep(260, 130, "fail");
       
+      let friendlyError = err.message || "Unknown error";
+      const isInsufficientFunds = friendlyError.toLowerCase().includes("insufficient funds") || friendlyError.includes("INSUFFICIENT_FUNDS");
+      if (isInsufficientFunds) {
+        friendlyError = `On-chain execution error: Insufficient funds. Your connected EVM account address (${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)}) has 0 or low test ETH/USDC. If you sign in utilizing an external wallet, please make sure it is configured to Arc Testnet and populated with sample USDC/gas assets before executing. Alternatively, use our embedded local wallet option which starts pre-credited with gas/test assets.`;
+      }
+      
       setMessages(prev => {
         const cleaned = prev.filter(m => m.id !== processingMsgId);
         return [
@@ -883,7 +907,7 @@ export default function App() {
           {
             id: `m-fail-${Date.now()}`,
             sender: "agent",
-            text: `Transaction aborted: ${err.message}`,
+            text: `Transaction aborted: ${friendlyError}`,
             timestamp: new Date().toISOString(),
             status: "failed"
           }
@@ -926,11 +950,13 @@ export default function App() {
         >
         <div className="flex items-center gap-1.5 sm:gap-3">
           <div className="relative">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-gradient-to-tr from-slate-900 via-slate-800 to-slate-950 p-[1.5px] flex items-center justify-center shadow-md shadow-blue-500/5 ring-1 ring-white/10 hover:scale-[1.03] transition-transform duration-300">
-              <div className="w-full h-full rounded-[6px] sm:rounded-[10px] bg-slate-950 flex items-center justify-center relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/10 via-transparent to-transparent opacity-60" />
-                <Bot className="w-4 h-4 sm:w-5.5 sm:h-5.5 text-blue-400 relative z-10 animate-pulse drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]" />
-              </div>
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl overflow-hidden bg-slate-950 flex items-center justify-center shadow-md border border-slate-350 hover:scale-[1.03] transition-transform duration-300">
+              <img 
+                src={robotAvatar} 
+                alt="Arc Companion Logo" 
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer" 
+              />
             </div>
           </div>
 
@@ -1066,20 +1092,31 @@ export default function App() {
                           <div className={`max-w-[90%] flex gap-1.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
                             
                             {/* Speaker icon */}
-                            <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 border text-[8px] uppercase font-mono ${
+                            <div className={`w-5 h-5 rounded overflow-hidden flex items-center justify-center shrink-0 border text-[8px] uppercase font-mono ${
                               isUser 
                                 ? "bg-slate-200 text-slate-800 border-slate-300" 
                                 : "bg-slate-900 text-white border-transparent"
                             }`}>
-                              {isUser ? <span>U</span> : <Bot className="w-2.5 h-2.5" />}
+                              {isUser ? (
+                                <span>U</span>
+                              ) : (
+                                <img 
+                                  src={robotAvatar} 
+                                  alt="Bot avatar" 
+                                  className="w-full h-full object-cover"
+                                  referrerPolicy="no-referrer" 
+                                />
+                              )}
                             </div>
 
                             {/* Speech box bubble */}
                             <div className="text-left flex flex-col items-start max-w-full">
-                              <div className={`py-1 px-2.5 rounded-xl text-xs leading-normal relative w-full ${
-                                isUser 
-                                  ? "bg-slate-250 text-slate-950 border border-slate-400 rounded-tr-none" 
-                                  : "bg-slate-100 text-slate-900 border border-slate-300 rounded-tl-none font-sans"
+                              <div className={`py-1.5 px-3 rounded-xl text-xs leading-normal relative w-full transition-all duration-300 ${
+                                msg.status === "completed"
+                                  ? "bg-emerald-50 text-emerald-950 border-2 border-emerald-400/70 rounded-tl-none shadow-xs"
+                                  : isUser 
+                                    ? "bg-slate-250 text-slate-950 border border-slate-400 rounded-tr-none shadow-3xs" 
+                                    : "bg-slate-100 text-slate-900 border border-slate-300 rounded-tl-none font-sans"
                               }`}>
                                 <div className="flex flex-col">
                                   <div className="text-[11px] leading-normal break-words">{msg.text}</div>
@@ -1147,67 +1184,89 @@ export default function App() {
 
                                 {/* Interactive UI Success Transaction Details inline */}
                                 {msg.transaction && msg.status === "completed" && (
-                                  <div className="mt-2 p-2 rounded-lg bg-emerald-50/50 border border-emerald-200 text-slate-900 space-y-1 font-mono text-[10px]">
-                                    <div className="flex items-center gap-1 text-emerald-800 font-sans font-bold text-xs uppercase tracking-wider">
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                      <span>Transfer completed</span>
+                                  <div className="mt-2.5 p-3 rounded-xl bg-white/90 border border-emerald-300 text-slate-900 space-y-2.5 font-sans shadow-2xs">
+                                    <div className="flex items-center justify-between border-b border-emerald-100 pb-1.5 flex-wrap gap-1">
+                                      <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-[11px] uppercase tracking-wider">
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                        <span>On-Chain Receipt Finalized</span>
+                                      </div>
+                                      <span className="text-[8px] px-1.5 py-0.2 bg-emerald-100 border border-emerald-250 text-emerald-800 rounded-full font-mono font-bold uppercase">arc testnet</span>
                                     </div>
 
-                                    <div className="space-y-0.5 mt-1 text-[9px] text-slate-700">
-                                      <div className="flex justify-between">
-                                        <span className="text-slate-400 font-sans">Payment sum:</span>
-                                        <span className="text-slate-900 font-bold">{msg.transaction.amount} USDC</span>
+                                    <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[10px]">
+                                      <div className="col-span-2 sm:col-span-1">
+                                        <span className="text-slate-500 font-mono text-[8px] uppercase tracking-wider block">Transfer Amount</span>
+                                        <div className="font-extrabold text-slate-950 text-[13px] mt-0.5 text-emerald-700">
+                                          {msg.transaction.amount} {msg.transaction.token}
+                                        </div>
                                       </div>
-                                      <div className="flex justify-between">
-                                        <span className="text-slate-400 font-sans">Target Profile:</span>
-                                        <span className="text-slate-900">{msg.transaction.toName}</span>
+                                      
+                                      <div className="col-span-2 sm:col-span-1">
+                                        <span className="text-slate-500 font-mono text-[8px] uppercase tracking-wider block">Recipient Contact</span>
+                                        <div className="font-bold text-slate-900 mt-0.5 truncate flex items-center gap-1">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                          {msg.transaction.toName}
+                                        </div>
                                       </div>
-                                      <div className="flex justify-between">
-                                        <span className="text-slate-400 font-sans">Address:</span>
-                                        <span className="text-slate-650">{msg.transaction.toAddress.slice(0, 6)}...{msg.transaction.toAddress.slice(-4)}</span>
+
+                                      <div className="col-span-2">
+                                        <span className="text-slate-405 font-mono text-[8px] uppercase tracking-wider block">Recipient EVM Address</span>
+                                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg text-[9px] font-mono text-slate-800 mt-1">
+                                          <span className="truncate select-all max-w-[85%]">{msg.transaction.toAddress}</span>
+                                          <button
+                                            onClick={() => {
+                                              navigator.clipboard.writeText(msg.transaction!.toAddress);
+                                              triggerSynthBeep(600, 400, "success");
+                                            }}
+                                            className="ml-1 text-[8px] text-slate-400 hover:text-slate-700 font-bold shrink-0 cursor-pointer"
+                                            title="Copy address"
+                                          >
+                                            Copy
+                                          </button>
+                                        </div>
                                       </div>
                                     </div>
 
-                                    <div className="pt-2 border-t border-emerald-100 flex flex-col gap-2">
+                                    <div className="pt-2 border-t border-emerald-100 text-[9px]">
                                       {msg.transaction.isLocalLedger ? (
-                                        <div className="text-[8px] text-slate-500 font-mono flex items-center gap-1 select-none" title="This transaction reflects a safe local enclave book modification.">
-                                          <span>Local Enclave Ledger Adjustment (Offline Mode)</span>
+                                        <div className="text-[8.5px] text-emerald-800 font-sans font-semibold flex items-center gap-1 py-0.5 px-1.5 bg-emerald-50 rounded border border-emerald-200 select-none">
+                                          <span>Local Enclave Ledger Adjustment (Sandbox State Sync)</span>
                                         </div>
                                       ) : (
-                                        <div className="space-y-1.5">
-                                          <div className="flex flex-wrap items-center justify-between gap-1.5 text-[8.5px] font-mono">
-                                            <div className="flex items-center gap-1 text-slate-700">
-                                              <span className="font-bold text-slate-900">Hash:</span>
-                                              <span className="select-all break-all">{msg.transaction.txHash}</span>
+                                        <div className="space-y-2">
+                                          <div>
+                                            <span className="text-slate-500 font-mono text-[8px] uppercase tracking-wider block mb-1">On-Chain Transaction Proof (Hash)</span>
+                                            <div className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[8px] font-mono text-slate-650 break-all select-all font-semibold">
+                                              {msg.transaction.txHash}
                                             </div>
                                           </div>
                                           
-                                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                                            {/* Open in New Tab for Standard Desktops */}
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            {/* Open in New Tab for Desktop */}
                                             <a
                                               href={`https://testnet.arcscan.app/tx/${msg.transaction.txHash}`}
                                               target="_blank"
                                               rel="noreferrer"
-                                              className="inline-flex items-center gap-1 text-[8px] font-bold px-1.5 py-0.5 bg-slate-200 hover:bg-slate-250 border border-slate-350 text-slate-705 rounded transition font-sans"
+                                              className="inline-flex items-center gap-1 text-[8.5px] font-bold px-2 py-1 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-750 rounded-lg transition font-sans cursor-pointer"
                                             >
-                                              <span>Explorer (New Tab)</span>
-                                              <ExternalLink className="w-2 h-2 text-slate-500" />
+                                              <span>New Tab Explorer</span>
+                                              <ExternalLink className="w-2.5 h-2.5 text-slate-500" />
                                             </a>
 
-                                            {/* Open in Same Tab for Mobile Web3 dApp browsers layout block */}
+                                            {/* Open in Same Tab for Mobile dApp Browsers to avoid blocked popup windows */}
                                             <a
                                               href={`https://testnet.arcscan.app/tx/${msg.transaction.txHash}`}
                                               target="_self"
-                                              className="inline-flex items-center gap-0.5 text-[8px] font-bold px-1.5 py-0.5 bg-slate-900 hover:bg-slate-800 text-white rounded transition font-sans"
-                                              title="Best for mobile MetaMask browser to avoid black/blocked pages"
+                                              className="inline-flex items-center gap-0.5 text-[8.5px] font-bold px-2 py-1 bg-slate-900 hover:bg-slate-850 text-white rounded-lg transition font-sans cursor-pointer"
+                                              title="Direct link for MetaMask/Trust mobile wallet browser"
                                             >
                                               <span>Same Tab</span>
                                             </a>
 
-                                            {/* Copy transaction direct explorer URL with dynamic timer visual feedback */}
+                                            {/* Copy transaction direct explorer URL with dynamic feedback */}
                                             <button
                                               onClick={() => {
-                                                const url = `https://testnet.arcscan.app/tx/${msg.transaction.txHash}`;
+                                                const url = `https://testnet.arcscan.app/tx/${msg.transaction!.txHash}`;
                                                 navigator.clipboard.writeText(url);
                                                 setCopiedTxId(msg.id);
                                                 triggerSynthBeep(650, 750, "neutral");
@@ -1215,7 +1274,7 @@ export default function App() {
                                                   setCopiedTxId(null);
                                                 }, 2000);
                                               }}
-                                              className={`inline-flex items-center gap-1 text-[8px] font-bold px-2 py-0.5 rounded transition font-sans cursor-pointer ${
+                                              className={`inline-flex items-center gap-1 text-[8.5px] font-bold px-2 py-1 rounded-lg transition font-sans cursor-pointer ${
                                                 copiedTxId === msg.id 
                                                   ? "bg-emerald-100 border border-emerald-300 text-emerald-800" 
                                                   : "bg-blue-50 hover:bg-blue-100 border border-blue-250 text-blue-700"
@@ -1223,12 +1282,12 @@ export default function App() {
                                             >
                                               {copiedTxId === msg.id ? (
                                                 <>
-                                                  <Check className="w-2 h-2 text-emerald-600 font-bold animate-bounce" />
-                                                  <span>Copied Explorer Link!</span>
+                                                  <Check className="w-2.5 h-2.5 text-emerald-600 font-bold animate-bounce" />
+                                                  <span>Copied Link!</span>
                                                 </>
                                               ) : (
                                                 <>
-                                                  <Copy className="w-2 h-2 text-blue-500" />
+                                                  <Copy className="w-2.5 h-2.5 text-blue-500" />
                                                   <span>Copy Link</span>
                                                 </>
                                               )}
