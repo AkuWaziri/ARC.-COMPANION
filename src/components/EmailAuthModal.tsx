@@ -94,6 +94,8 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
   const [receivedOtp, setReceivedOtp] = useState("");
   const [showEmailToast, setShowEmailToast] = useState(false);
   const [showCodeAssistant, setShowCodeAssistant] = useState(true);
+  const [sentRealEmail, setSentRealEmail] = useState<boolean | null>(null);
+  const [smtpErrorMessage, setSmtpErrorMessage] = useState("");
 
   useEffect(() => {
     if (showEmailToast) {
@@ -245,10 +247,18 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
         const otpData = await otpRes.json();
         if (otpData.success) {
           setShowEmailToast(true);
+          setSentRealEmail(!!otpData.sentRealEmail);
+          setSmtpErrorMessage(otpData.error || "");
           if (otpData.code) {
             setReceivedOtp(otpData.code);
           }
+        } else {
+          setSentRealEmail(false);
+          setSmtpErrorMessage(otpData.error || "Verification engine initialization failed.");
         }
+      } else {
+        setSentRealEmail(false);
+        setSmtpErrorMessage("Server OTP service is not available.");
       }
     } catch (err) {
       console.warn("Could not query email wallet directory or send OTP from backend:", err);
@@ -894,6 +904,16 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
                       Confirm the 6-digit cryptographic verification code dispatched to <strong className="text-slate-900 font-mono">{email}</strong>.
                     </p>
                   </div>
+
+                  {sentRealEmail === false && (
+                    <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-xl text-[10px] leading-relaxed">
+                      <div className="flex items-center gap-1.5 font-bold mb-1 text-amber-800">
+                        <span className="text-[11px] shrink-0">⚠️</span>
+                        <span>SMTP Email Server Warning</span>
+                      </div>
+                      Real inbox email delivery failed or was skipped due to invalid server authentication credentials. For rapid sandbox testing, please retrieve the generated verification code from our <strong>Live OTP Assistant</strong>.
+                    </div>
+                  )}
 
                   {/* Compact Mobile-Only Live Code Assistant */}
                   <div className="block md:hidden bg-slate-50 border border-slate-300 rounded-2xl p-3 space-y-2">
