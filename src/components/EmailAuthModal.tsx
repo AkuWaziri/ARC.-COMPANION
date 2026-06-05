@@ -49,43 +49,9 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
   const [walletChainId, setWalletChainId] = useState("");
   const [isExtensionDetected, setIsExtensionDetected] = useState(false);
   const [walletChecked, setWalletChecked] = useState(false);
+  const autoConnectRef = React.useRef(false);
 
-  useEffect(() => {
-    if (step === 'wallet-prompt') {
-      const checkNetwork = async () => {
-        const hasEthereum = typeof window !== "undefined" && (window as any).ethereum;
-        if (hasEthereum) {
-          try {
-            const chainId = await (window as any).ethereum.request({ method: 'eth_chainId' });
-            setWalletChainId(chainId);
-            setIsExtensionDetected(true);
-          } catch (e) {
-            console.warn("Could not check chain ID:", e);
-            setIsExtensionDetected(true);
-          }
-        } else {
-          setIsExtensionDetected(false);
-        }
-        setWalletChecked(true);
-      };
-      
-      checkNetwork();
-      
-      const hasEthereum = typeof window !== "undefined" && (window as any).ethereum;
-      if (hasEthereum && hasEthereum.on) {
-        const handleChainChanged = (chainId: string) => {
-          setWalletChainId(chainId);
-        };
-        hasEthereum.on('chainChanged', handleChainChanged);
-        return () => {
-          if (hasEthereum.removeListener) {
-            hasEthereum.removeListener('chainChanged', handleChainChanged);
-          }
-        };
-      }
-    }
-  }, [step]);
-
+  // Relocated states to top of component body to prevent hoisting reference errors in hooks
   const [copied, setCopied] = useState(false);
   const [copiedDappUrl, setCopiedDappUrl] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -96,6 +62,76 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
   const [showCodeAssistant, setShowCodeAssistant] = useState(true);
   const [sentRealEmail, setSentRealEmail] = useState<boolean | null>(null);
   const [smtpErrorMessage, setSmtpErrorMessage] = useState("");
+
+  useEffect(() => {
+    if (step !== 'wallet-prompt') {
+      autoConnectRef.current = false;
+      return;
+    }
+
+    let active = true;
+
+    const checkNetwork = async () => {
+      const hasEthereum = typeof window !== "undefined" && (window as any).ethereum;
+      if (hasEthereum) {
+        try {
+          const chainId = await (window as any).ethereum.request({ method: 'eth_chainId' });
+          if (!active) return;
+          setWalletChainId(chainId);
+          setIsExtensionDetected(true);
+
+          const targetChainHex = '0x4cef52';
+          const isCorrect = chainId && (
+            chainId.toLowerCase() === targetChainHex ||
+            chainId === "5042002" ||
+            chainId.toLowerCase() === "0x04cef52"
+          );
+
+          if (isCorrect && !isLoading && !autoConnectRef.current) {
+            autoConnectRef.current = true;
+            // Immediate native authorize and connect popup
+            triggerNativeWalletConnect(selectedWalletName || "MetaMask");
+          }
+        } catch (e) {
+          console.warn("Could not check chain ID:", e);
+          if (active) setIsExtensionDetected(true);
+        }
+      } else {
+        if (active) setIsExtensionDetected(false);
+      }
+      if (active) setWalletChecked(true);
+    };
+
+    checkNetwork();
+
+    const hasEthereum = typeof window !== "undefined" && (window as any).ethereum;
+    if (hasEthereum && hasEthereum.on) {
+      const handleChainChanged = (chainId: string) => {
+        if (!active) return;
+        setWalletChainId(chainId);
+
+        const targetChainHex = '0x4cef52';
+        const isCorrect = chainId && (
+          chainId.toLowerCase() === targetChainHex ||
+          chainId === "5042002" ||
+          chainId.toLowerCase() === "0x04cef52"
+        );
+
+        if (isCorrect && !isLoading && !autoConnectRef.current) {
+          autoConnectRef.current = true;
+          triggerNativeWalletConnect(selectedWalletName || "MetaMask");
+        }
+      };
+
+      hasEthereum.on('chainChanged', handleChainChanged);
+      return () => {
+        active = false;
+        if (hasEthereum.removeListener) {
+          hasEthereum.removeListener('chainChanged', handleChainChanged);
+        }
+      };
+    }
+  }, [step, selectedWalletName, isLoading]);
 
   useEffect(() => {
     if (showEmailToast) {
@@ -905,59 +941,48 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
                     </p>
                   </div>
 
-                  {sentRealEmail === false && (
+                  {receivedOtp && (
+                    <div className="p-3.5 bg-emerald-50 border-2 border-emerald-400 rounded-2xl text-slate-900 space-y-2.5 relative shadow-xs">
+                      <div className="flex items-center justify-between flex-wrap gap-1">
+                        <span className="text-[10px] font-sans font-extrabold text-emerald-800 uppercase flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                          🔑 Sandbox Verification OTP
+                        </span>
+                        <span className="text-[8px] px-1.5 py-0.2 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full font-bold font-mono">SECURE BYPASS</span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between gap-1.5 bg-white p-2.5 border border-emerald-300 rounded-xl shadow-3xs">
+                        <div>
+                          <span className="text-[8px] font-mono text-slate-400 uppercase block font-bold leading-none">Your Verification Pin</span>
+                          <span className="text-xl font-black font-mono tracking-widest text-[#1e3a8a] select-all block leading-none mt-2">
+                            {receivedOtp}
+                          </span>
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerBeep(520, 1000, "success");
+                            setOtp(receivedOtp.split(""));
+                            setErrorMsg("");
+                          }}
+                          className="px-3 py-2 bg-emerald-650 hover:bg-emerald-700 text-white rounded-xl text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer select-none shadow-xs hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                          <span>Auto Fill ⚡</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {sentRealEmail === false && !receivedOtp && (
                     <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-xl text-[10px] leading-relaxed">
                       <div className="flex items-center gap-1.5 font-bold mb-1 text-amber-800">
                         <span className="text-[11px] shrink-0">⚠️</span>
                         <span>SMTP Email Server Warning</span>
                       </div>
-                      Real inbox email delivery failed or was skipped due to invalid server authentication credentials. For rapid sandbox testing, please retrieve the generated verification code from our <strong>Live OTP Assistant</strong>.
+                      Real inbox email delivery failed or was skipped due to invalid server authentication credentials. For rapid sandbox testing, please retrieve the generated verification code.
                     </div>
                   )}
-
-                  {/* Compact Mobile-Only Live Code Assistant */}
-                  <div className="block md:hidden bg-slate-50 border border-slate-300 rounded-2xl p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-800 font-sans">
-                        <span>🔑 Live OTP Assistant</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <span className="w-1.2 h-1.2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-[8px] font-mono font-black text-emerald-600 uppercase">STANDBY SECURE</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-white border border-slate-200 rounded-xl p-2.5 shadow-3xs">
-                      {receivedOtp ? (
-                        <div className="flex items-center justify-between gap-1.5">
-                          <div>
-                            <span className="text-[8px] font-mono text-slate-400 uppercase block font-bold leading-none">Session Code</span>
-                            <span className="text-xl font-black font-mono tracking-widest text-[#1e3a8a] select-all block leading-none mt-1.5">
-                              {receivedOtp}
-                            </span>
-                          </div>
-                          
-                          <button
-                            type="button"
-                            onClick={() => {
-                              triggerBeep(520, 1000, "success");
-                              setOtp(receivedOtp.split(""));
-                              setErrorMsg("");
-                            }}
-                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-750 text-white rounded-lg text-[9px] font-bold transition flex items-center gap-1 cursor-pointer select-none"
-                          >
-                            <span>Autofill & Go⚡</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="py-2 text-center">
-                          <p className="text-[9px] text-slate-500 italic">
-                            Waiting for email code generation...
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
                 </div>
 
                 {errorMsg && (
