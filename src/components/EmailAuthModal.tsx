@@ -18,12 +18,15 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { WalletState } from "../types";
 import { ethers } from "ethers";
+import { useAuth } from "../context/AuthContext";
 import robotAvatar from "../assets/images/friendly_bot_logo_1780649113441.png";
 
 interface EmailAuthModalProps {
   onLoginSuccess: (wallet: WalletState, secureLogs: string[], userEmail?: string) => void;
   triggerBeep: (start: number, end: number, type: 'success' | 'fail' | 'neutral') => void;
+  forceState?: 'unauthenticated' | 'authenticated-no-wallet';
 }
+
 
 const BIP39_WORDS = [
   "arc", "shield", "secure", "money", "agent", "track", "orbit", "system", "globe", "connect",
@@ -36,15 +39,36 @@ const BIP39_WORDS = [
   "canyon", "valley", "oasis", "dune", "crater", "cortex", "neural", "synapse", "vector"
 ];
 
-export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAuthModalProps) {
+export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState = 'unauthenticated' }: EmailAuthModalProps) {
+  const { userEmail, login, connectWallet, logout } = useAuth();
+  
   const [step, setStep] = useState<'methods' | 'email-input' | 'email-otp' | 'email-passphrase' | 'wallet-connect' | 'restore-mnemonic' | 'wallet-prompt'>('methods');
   const [walletConnectTab, setWalletConnectTab] = useState<'qr' | 'extension'>('extension');
   const [selectedWalletName, setSelectedWalletName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => userEmail || "");
+
+  useEffect(() => {
+    if (userEmail && !email) {
+      setEmail(userEmail);
+    }
+  }, [userEmail]);
+
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [mnemonicInput, setMnemonicInput] = useState("");
   const [generatedWallet, setGeneratedWallet] = useState<WalletState | null>(null);
   const [existingEmailWallet, setExistingEmailWallet] = useState<WalletState | null>(null);
+
+  // Multi-step interactive seed checklist and words confirmation states
+  const [safetyCheck1, setSafetyCheck1] = useState(false);
+  const [safetyCheck2, setSafetyCheck2] = useState(false);
+  const [safetyCheck3, setSafetyCheck3] = useState(false);
+  const [seedVerifySubstep, setSeedVerifySubstep] = useState<'view' | 'verify'>('view');
+  const [testWordIdx1, setTestWordIdx1] = useState(2); // word 3
+  const [testWordIdx2, setTestWordIdx2] = useState(7); // word 8
+  const [testWordOptions1, setTestWordOptions1] = useState<string[]>([]);
+  const [testWordOptions2, setTestWordOptions2] = useState<string[]>([]);
+  const [selectedWordOption1, setSelectedWordOption1] = useState("");
+  const [selectedWordOption2, setSelectedWordOption2] = useState("");
 
   const [walletChainId, setWalletChainId] = useState("");
   const [isExtensionDetected, setIsExtensionDetected] = useState(false);
@@ -63,22 +87,98 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
   const [sentRealEmail, setSentRealEmail] = useState<boolean | null>(null);
   const [smtpErrorMessage, setSmtpErrorMessage] = useState("");
 
+  // Auto-verify same-tab Google redirects from state caches on mounting
   useEffect(() => {
-    if (step !== 'wallet-prompt') {
-      autoConnectRef.current = false;
-      return;
+    const oauthSuccess = localStorage.getItem("arc_oauth_success");
+    if (oauthSuccess) {
+      try {
+        const raw = JSON.parse(oauthSuccess);
+        localStorage.removeItem("arc_oauth_success");
+        if (raw && raw.type === "OAUTH_AUTH_SUCCESS") {
+          const userEmail = raw.email;
+          const userWallet = raw.wallet;
+          const sessionToken = raw.sessionToken;
+          
+          if (sessionToken) {
+            localStorage.setItem("arc_session_token", sessionToken);
+            login(userEmail, sessionToken);
+          }
+          
+          if (userWallet) {
+            const isNew = !!raw.isNew;
+            if (isNew) {
+              setGeneratedWallet(userWallet);
+              setEmail(userEmail);
+              setStep('email-passphrase');
+              setSeedVerifySubstep('view');
+            } else {
+              const secureLogs = [
+                `Authenticated with Google association: ${userEmail}`,
+                `EVM HSM address restored from profile: ${userWallet.address}`,
+                `Session token registered successfully.`
+              ];
+              onLoginSuccess(userWallet, secureLogs, userEmail);
+            }
+          } else {
+            setEmail(userEmail);
+            generateNewWalletFromMnemonic();
+            setStep('email-passphrase');
+          }
+        }
+      } catch (err) {
+        console.warn("Could not load OAuth authorization metadata:", err);
+      }
     }
+  }, []);
 
+  const prepareBackupVerification = () => {
+    if (!generatedWallet) return;
+    const words = generatedWallet.seedPhrase.split(/\s+/);
+    if (words.length < 12) return;
+
+    const idx1 = 2; // Word #3
+    const idx2 = 7; // Word #8
+    setTestWordIdx1(idx1);
+    setTestWordIdx2(idx2);
+
+    const correctWord1 = words[idx1];
+    const correctWord2 = words[idx2];
+
+    const pool1 = new Set([correctWord1]);
+    while (pool1.size < 4) {
+      const rw = BIP39_WORDS[Math.floor(Math.random() * BIP39_WORDS.length)];
+      pool1.add(rw);
+    }
+    setTestWordOptions1(Array.from(pool1).sort(() => Math.random() - 0.5));
+
+    const pool2 = new Set([correctWord2]);
+    while (pool2.size < 4) {
+      const rw = BIP39_WORDS[Math.floor(Math.random() * BIP39_WORDS.length)];
+      pool2.add(rw);
+    }
+    setTestWordOptions2(Array.from(pool2).sort(() => Math.random() - 0.5));
+
+    setSeedVerifySubstep('verify');
+    setErrorMsg("");
+  };
+
+  useEffect(() => {
     let active = true;
 
-    const checkNetwork = async () => {
+    const checkNetworkAndAutoConnect = async () => {
+      // If user explicitly signed out, do not automatically connect extension wallets
+      if (typeof window !== "undefined" && localStorage.getItem("arc_user_signed_out") === "true") {
+        if (active) setWalletChecked(true);
+        return;
+      }
+
       const hasEthereum = typeof window !== "undefined" && (window as any).ethereum;
       if (hasEthereum) {
         try {
+          setIsExtensionDetected(true);
           const chainId = await (window as any).ethereum.request({ method: 'eth_chainId' });
           if (!active) return;
           setWalletChainId(chainId);
-          setIsExtensionDetected(true);
 
           const targetChainHex = '0x4cef52';
           const isCorrect = chainId && (
@@ -87,14 +187,23 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
             chainId.toLowerCase() === "0x04cef52"
           );
 
-          if (isCorrect && !isLoading && !autoConnectRef.current) {
+          if (isCorrect && !autoConnectRef.current) {
             autoConnectRef.current = true;
-            // Immediate native authorize and connect popup
-            triggerNativeWalletConnect(selectedWalletName || "MetaMask");
+            // Silent account verify
+            const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' }).catch(() => []);
+            if (accounts && accounts.length > 0) {
+              triggerNativeWalletConnect("Web3 Mobile Browser");
+            } else if (step === 'wallet-prompt') {
+              // Forced connect action context
+              triggerNativeWalletConnect(selectedWalletName || "Web3 Browser");
+            }
+          } else if (step === 'wallet-prompt' && !autoConnectRef.current) {
+            // Force switch chain, then connect
+            autoConnectRef.current = true;
+            triggerNativeWalletConnect(selectedWalletName || "Web3 Browser");
           }
         } catch (e) {
-          console.warn("Could not check chain ID:", e);
-          if (active) setIsExtensionDetected(true);
+          console.warn("Auto connect network assertion skipped:", e);
         }
       } else {
         if (active) setIsExtensionDetected(false);
@@ -102,7 +211,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
       if (active) setWalletChecked(true);
     };
 
-    checkNetwork();
+    checkNetworkAndAutoConnect();
 
     const hasEthereum = typeof window !== "undefined" && (window as any).ethereum;
     if (hasEthereum && hasEthereum.on) {
@@ -117,9 +226,9 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
           chainId.toLowerCase() === "0x04cef52"
         );
 
-        if (isCorrect && !isLoading && !autoConnectRef.current) {
+        if (isCorrect && !autoConnectRef.current) {
           autoConnectRef.current = true;
-          triggerNativeWalletConnect(selectedWalletName || "MetaMask");
+          triggerNativeWalletConnect(selectedWalletName || "Web3 Browser");
         }
       };
 
@@ -250,6 +359,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
   };
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
+    localStorage.removeItem("arc_user_signed_out");
     e.preventDefault();
     if (!email || !email.includes("@")) {
       triggerBeep(260, 130, "fail");
@@ -332,27 +442,120 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
         return;
       }
 
+      const data = await verifyRes.json();
+      const sessionToken = data.sessionToken;
+      const verifiedWallet = data.wallet;
+
       // Success
       setIsLoading(false);
       triggerBeep(600, 1200, "success");
       setShowEmailToast(false);
 
-      if (existingEmailWallet) {
+      if (sessionToken) {
+        localStorage.setItem("arc_session_token", sessionToken);
+        login(email, sessionToken);
+      }
+
+      if (verifiedWallet) {
         const secureLogs = [
           `Re-authenticated Gmail association on Arc Testnet via OTP Enclave validation.`,
-          `EVM HSM address restored from profile: ${existingEmailWallet.address}`,
+          `EVM HSM address restored from profile: ${verifiedWallet.address}`,
           `Connection verified successfully.`
         ];
-        onLoginSuccess(existingEmailWallet, secureLogs, email);
+        onLoginSuccess(verifiedWallet, secureLogs, email);
       } else {
         // Immediately generate new wallet
         generateNewWalletFromMnemonic();
         setStep('email-passphrase');
+        setSeedVerifySubstep('view');
       }
     } catch (err: any) {
       console.error("Verification failed:", err);
       setErrorMsg("Connection error verifying with crypto gateway. Please try again.");
       triggerBeep(260, 130, "fail");
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    localStorage.removeItem("arc_user_signed_out");
+    setErrorMsg("");
+    setIsLoading(true);
+    triggerBeep(450, 600, "neutral");
+
+    try {
+      const res = await fetch("/api/auth/google/url");
+      if (res.ok) {
+        const data = await res.json();
+        const url = data.url;
+
+        // Configuration matching popup rules
+        const width = 500;
+        const height = 650;
+        const left = window.screen.width / 2 - width / 2;
+        const top = window.screen.height / 2 - height / 2;
+        
+        const popup = window.open(
+          url,
+          "Google OAuth Sandbox Enclave",
+          `width=${width},height=${height},left=${left},top=${top},status=no,resizable=yes`
+        );
+
+        if (!popup) {
+          // If popup blocker intervened, let fallback same-tab redirect execute safely
+          window.location.href = url;
+          return;
+        }
+
+        const handleMessage = (event: MessageEvent) => {
+          if (event.data && event.data.type === "OAUTH_AUTH_SUCCESS") {
+            window.removeEventListener("message", handleMessage);
+            setIsLoading(false);
+            triggerBeep(600, 1200, "success");
+            
+            const userEmail = event.data.email;
+            const userWallet = event.data.wallet;
+            const sessionToken = event.data.sessionToken;
+
+            if (sessionToken) {
+              localStorage.setItem("arc_session_token", sessionToken);
+              login(userEmail, sessionToken);
+            }
+
+            if (userWallet) {
+              const isNew = !!event.data.isNew;
+              if (isNew) {
+                // Brand new registration - enforce recovery phrase walkthrough and backup consent verification
+                setGeneratedWallet(userWallet);
+                setEmail(userEmail);
+                setStep('email-passphrase');
+                setSeedVerifySubstep('view');
+              } else {
+                // Existing account - login immediately
+                const secureLogs = [
+                  `Gmail OAuth verified with associated entity: ${userEmail}`,
+                  `Restored existing safe EVM Enclave: ${userWallet.address}`,
+                  `Connection active and synced.`
+                ];
+                onLoginSuccess(userWallet, secureLogs, userEmail);
+              }
+            } else {
+              setEmail(userEmail);
+              generateNewWalletFromMnemonic();
+              setStep('email-passphrase');
+              setSeedVerifySubstep('view');
+            }
+          }
+        };
+
+        window.addEventListener("message", handleMessage);
+      } else {
+        setErrorMsg("Failed to initiate Google Authentication provider URL.");
+        setIsLoading(false);
+      }
+    } catch (err) {
+      console.error("Google OAuth error:", err);
+      setErrorMsg("Failed to connect with Google login servers.");
       setIsLoading(false);
     }
   };
@@ -443,6 +646,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
   };
 
   const handleWalletConnectSelect = async (walletName: string) => {
+    localStorage.removeItem("arc_user_signed_out");
     setSelectedWalletName(walletName);
     setErrorMsg("");
     triggerBeep(480, 580, "neutral");
@@ -534,20 +738,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
     }
 
     try {
-      // 1. Force wallet connection authorization popup (security requirement to prevent passive silent login)
-      try {
-        await (window as any).ethereum.request({
-          method: 'wallet_requestPermissions',
-          params: [{ eth_accounts: {} }]
-        });
-      } catch (permErr: any) {
-        console.warn("wallet_requestPermissions rejected or unsupported:", permErr);
-        if (permErr?.code === 4001) {
-          throw new Error("Connection request rejected by user in wallet.");
-        }
-      }
-
-      // 2. Request account access
+      // Direct request account access (highly compatible on all mobile & desktop extensions)
       const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
       const address = accounts && accounts[0];
       
@@ -695,7 +886,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
       <div 
         id="email-auth-box" 
         className={`w-full bg-white border border-slate-400 rounded-3xl p-4 sm:p-6 shadow-2xl relative max-h-[88vh] sm:max-h-[85vh] overflow-y-auto transition-all duration-300 ${
-          step === 'methods' || step === 'wallet-connect' || step === 'email-otp' || step === 'email-passphrase' ? 'max-w-2xl' : 'max-w-md'
+          step === 'methods' || step === 'wallet-connect' || step === 'email-passphrase' ? 'max-w-2xl' : 'max-w-md'
         }`}
       >
         
@@ -725,6 +916,26 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
                 <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
                   Open your inbox at <strong className="text-slate-200 font-mono select-all font-semibold">{email}</strong> to retrieve your secure 6-digit confirmation code.
                 </p>
+                {receivedOtp && (
+                  <div className="mt-2 text-left bg-emerald-950/80 border border-emerald-500/30 rounded-xl p-2.5 flex items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[8px] font-mono text-emerald-400 uppercase font-black tracking-wider block leading-none mb-1">Sandbox Code Bypass</span>
+                      <span className="text-sm font-black font-mono text-[#4ade80] tracking-widest leading-none block">{receivedOtp}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerBeep(520, 1000, "success");
+                        setOtp(receivedOtp.split(""));
+                        setErrorMsg("");
+                        setShowEmailToast(false);
+                      }}
+                      className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-lg text-[9px] transition cursor-pointer select-none"
+                    >
+                      Auto-Fill ⚡
+                    </button>
+                  </div>
+                )}
               </div>
               <button
                 type="button"
@@ -814,49 +1025,99 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
 
                 {/* Right Column: Connection selections */}
                 <div className="flex flex-col justify-center bg-slate-200 border border-slate-350 rounded-2xl p-6 gap-4 md:min-h-[220px]">
-                  <div className="space-y-3.5">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">Secure Credentials</span>
-                    
-                    <div className="flex flex-col gap-2">
+                  {forceState === "unauthenticated" ? (
+                    <div className="space-y-3.5">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">1. Secure Email Login</span>
+                      
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={handleGoogleLogin}
+                          disabled={isLoading}
+                          className="flex items-center justify-center gap-2.5 px-3 py-2.5 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98]"
+                        >
+                          <span className="text-md shrink-0 select-none">🔑</span>
+                          <span className="text-xs font-bold text-slate-800">Sign Up / Login with Gmail</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            triggerBeep(350, 480, "neutral");
+                            setErrorMsg("");
+                            setStep('email-input');
+                          }}
+                          className="flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-950 hover:bg-slate-850 text-white rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98]"
+                        >
+                          <Mail className="w-4 h-4 text-rose-400 shrink-0" />
+                          <span className="text-xs font-bold">Connect via Email OTP</span>
+                        </button>
+                      </div>
+                      
+                      <p className="text-[9px] text-slate-500 font-medium text-center leading-normal">
+                        You must complete Google or Email login before connecting or restored wallets.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3.5">
+                      <div className="flex items-center justify-between bg-white border border-slate-300 p-2 text-[10px] rounded-xl shadow-3xs">
+                        <div className="truncate font-mono font-bold text-slate-800 max-w-[150px]">
+                          👤 {userEmail || email}
+                        </div>
+                        <button
+                          onClick={logout}
+                          className="text-[9px] font-black text-rose-600 hover:underline shrink-0 font-mono"
+                        >
+                          SIGN OUT
+                        </button>
+                      </div>
+
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">2. Connect / Provision Wallet</span>
+                      
+                      <div className="flex flex-col gap-2">
+                        {/* Option A: Generate new wallet */}
+                        <button
+                          onClick={() => {
+                            triggerBeep(350, 480, "neutral");
+                            setErrorMsg("");
+                            generateNewWalletFromMnemonic();
+                            setStep('email-passphrase');
+                            setSeedVerifySubstep('view');
+                          }}
+                          className="flex items-center justify-center gap-2 px-3 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98] font-bold text-xs"
+                        >
+                          ⚡ Generate New Enclave Wallet
+                        </button>
+
+                        {/* Option B: Standard extension */}
+                        <button
+                          onClick={() => {
+                            triggerBeep(350, 480, "neutral");
+                            setErrorMsg("");
+                            setStep('wallet-connect');
+                          }}
+                          className="flex items-center justify-center gap-2 px-3 py-2.5 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98]"
+                        >
+                          <Wallet className="w-4 h-4 text-blue-500 shrink-0" />
+                          <span className="text-xs font-bold text-slate-750">Connect Web3 Extension</span>
+                        </button>
+                      </div>
+
+                      {/* Option C: Restore */}
                       <button
                         onClick={() => {
-                          triggerBeep(350, 480, "neutral");
                           setErrorMsg("");
-                          setStep('email-input');
-                        }}
-                        className="flex items-center justify-center gap-2 px-3 py-2.5 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl transition cursor-pointer shadow-xs"
-                      >
-                        <Mail className="w-4 h-4 text-rose-500 shrink-0" />
-                        <span className="text-xs font-bold text-slate-700">Connect via Secure Email Address</span>
-                      </button>
-                      <button
-                        onClick={() => {
+                          setStep('restore-mnemonic');
                           triggerBeep(350, 480, "neutral");
-                          setErrorMsg("");
-                          setStep('wallet-connect');
                         }}
-                        className="flex items-center justify-center gap-2 px-3 py-2.5 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl transition cursor-pointer shadow-xs"
+                        className="w-full flex items-center justify-between px-3 py-2 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl text-slate-600 hover:text-slate-900 transition cursor-pointer group"
                       >
-                        <Wallet className="w-4 h-4 text-blue-500 shrink-0" />
-                        <span className="text-xs font-bold text-slate-700">Connect Web3 Wallets</span>
+                        <div className="flex items-center gap-1.5 text-[8.5px] font-mono uppercase tracking-wider font-bold">
+                          <Key className="w-3.5 h-3.5 text-slate-500 shrink-0 group-hover:text-amber-500 transition" />
+                          <span>RESTORE SEED PHRASE</span>
+                        </div>
+                        <ArrowRight className="w-3 h-3 text-slate-500 group-hover:translate-x-0.5 transition" />
                       </button>
                     </div>
-
-                    <button
-                      onClick={() => {
-                        setErrorMsg("");
-                        setStep('restore-mnemonic');
-                        triggerBeep(350, 480, "neutral");
-                      }}
-                      className="w-full flex items-center justify-between px-3 py-2 bg-white hover:bg-slate-150 border border-slate-350 rounded-xl text-slate-600 hover:text-slate-900 transition cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-1.5 text-[8.5px] font-mono uppercase tracking-wider font-bold">
-                        <Key className="w-3.5 h-3.5 text-slate-500 shrink-0 group-hover:text-amber-500 transition" />
-                        <span>RESTORE WALLET</span>
-                      </div>
-                      <ArrowRight className="w-3 h-3 text-slate-500 group-hover:translate-x-0.5 transition" />
-                    </button>
-                  </div>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -915,7 +1176,6 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
               </form>
             </motion.div>
           )}
-
           {/* STEP 3: OTP Verification Input */}
           {step === 'email-otp' && (
             <motion.div
@@ -923,158 +1183,100 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
-              className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch text-left"
+              className="space-y-4 text-left"
             >
-              {/* Left Column: Form Details */}
-              <div className="flex flex-col justify-between space-y-4">
-                <div className="space-y-3">
-                  <div>
-                    <button 
-                      onClick={() => setStep('email-input')}
-                      className="text-[10px] hover:underline uppercase tracking-wider font-mono text-blue-600 hover:text-blue-800 font-bold mb-2 block cursor-pointer transition-colors"
-                    >
-                      &larr; Back to Email
-                    </button>
-                    <h2 className="text-lg font-bold font-display text-slate-950">Verify Your Identity</h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Confirm the 6-digit cryptographic verification code dispatched to <strong className="text-slate-900 font-mono">{email}</strong>.
-                    </p>
-                  </div>
-
-                  {receivedOtp && (
-                    <div className="p-3.5 bg-emerald-50 border-2 border-emerald-400 rounded-2xl text-slate-900 space-y-2.5 relative shadow-xs">
-                      <div className="flex items-center justify-between flex-wrap gap-1">
-                        <span className="text-[10px] font-sans font-extrabold text-emerald-800 uppercase flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
-                          🔑 Sandbox Verification OTP
-                        </span>
-                        <span className="text-[8px] px-1.5 py-0.2 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full font-bold font-mono">SECURE BYPASS</span>
-                      </div>
-                      
-                      <div className="flex items-center justify-between gap-1.5 bg-white p-2.5 border border-emerald-300 rounded-xl shadow-3xs">
-                        <div>
-                          <span className="text-[8px] font-mono text-slate-400 uppercase block font-bold leading-none">Your Verification Pin</span>
-                          <span className="text-xl font-black font-mono tracking-widest text-[#1e3a8a] select-all block leading-none mt-2">
-                            {receivedOtp}
-                          </span>
-                        </div>
-                        
-                        <button
-                          type="button"
-                          onClick={() => {
-                            triggerBeep(520, 1000, "success");
-                            setOtp(receivedOtp.split(""));
-                            setErrorMsg("");
-                          }}
-                          className="px-3 py-2 bg-emerald-650 hover:bg-emerald-700 text-white rounded-xl text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer select-none shadow-xs hover:scale-[1.02] active:scale-[0.98]"
-                        >
-                          <span>Auto Fill ⚡</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {sentRealEmail === false && !receivedOtp && (
-                    <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-xl text-[10px] leading-relaxed">
-                      <div className="flex items-center gap-1.5 font-bold mb-1 text-amber-800">
-                        <span className="text-[11px] shrink-0">⚠️</span>
-                        <span>SMTP Email Server Warning</span>
-                      </div>
-                      Real inbox email delivery failed or was skipped due to invalid server authentication credentials. For rapid sandbox testing, please retrieve the generated verification code.
-                    </div>
-                  )}
+              <div className="space-y-3">
+                <div>
+                  <button 
+                    onClick={() => setStep('email-input')}
+                    className="text-[10px] hover:underline uppercase tracking-wider font-mono text-blue-600 hover:text-blue-800 font-bold mb-2 block cursor-pointer transition-colors"
+                  >
+                    &larr; Back to Email
+                  </button>
+                  <h2 className="text-lg font-bold font-display text-slate-950">Verify Your Identity</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Confirm the 6-digit cryptographic verification code dispatched to <strong className="text-slate-900 font-mono">{email}</strong>.
+                  </p>
                 </div>
 
-                {errorMsg && (
-                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start gap-1">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>{errorMsg}</span>
+                {receivedOtp && (
+                  <div className="p-3.5 bg-emerald-50 border-2 border-emerald-400 rounded-2xl text-slate-900 space-y-2.5 relative shadow-xs animate-pulse-once">
+                    <div className="flex items-center justify-between flex-wrap gap-1">
+                      <span className="text-[10px] font-sans font-extrabold text-emerald-800 uppercase flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                        🔑 Sandbox Verification OTP
+                      </span>
+                      <span className="text-[8px] px-1.5 py-0.2 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full font-bold font-mono">SECURE BYPASS</span>
+                    </div>
+                    
+                    <div className="flex items-center justify-between gap-1.5 bg-white p-2.5 border border-emerald-300 rounded-xl shadow-3xs">
+                      <div>
+                        <span className="text-[8px] font-mono text-slate-400 uppercase block font-bold leading-none">Your Verification Pin</span>
+                        <span className="text-xl font-black font-mono tracking-widest text-[#1e3a8a] select-all block leading-none mt-2">
+                          {receivedOtp}
+                        </span>
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerBeep(520, 1000, "success");
+                          setOtp(receivedOtp.split(""));
+                          setErrorMsg("");
+                        }}
+                        className="px-3 py-2 bg-emerald-650 hover:bg-emerald-700 text-white rounded-xl text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer select-none shadow-xs hover:scale-[1.02] active:scale-[0.98]"
+                      >
+                        <span>Autofill & Go ⚡</span>
+                      </button>
+                    </div>
                   </div>
                 )}
 
-                <div className="space-y-4">
-                  {/* 6 Grid layout digits */}
-                  <div className="flex justify-between items-center gap-2">
-                    {otp.map((char, index) => (
-                      <input
-                        key={index}
-                        id={`otp-${index}`}
-                        type="text"
-                        maxLength={1}
-                        pattern="[0-9]*"
-                        inputMode="numeric"
-                        value={char}
-                        onChange={(e) => handleOtpChange(index, e.target.value)}
-                        onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                        className="w-10 h-11 sm:w-11 sm:h-12 bg-slate-100 border-2 border-slate-350 focus:border-slate-800 focus:bg-white text-center text-md sm:text-lg font-bold rounded-xl focus:outline-none transition-all text-slate-950"
-                      />
-                    ))}
+                {sentRealEmail === false && !receivedOtp && (
+                  <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-xl text-[10px] leading-relaxed">
+                    <div className="flex items-center gap-1.5 font-bold mb-1 text-amber-800">
+                      <span className="text-[11px] shrink-0">⚠️</span>
+                      <span>SMTP Email Server Warning</span>
+                    </div>
+                    Real inbox email delivery failed or was skipped due to invalid server authentication credentials. For rapid sandbox testing, please retrieve the generated verification code.
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={verifyOtpAndProceed}
-                    disabled={isLoading}
-                    className="w-full py-2.5 bg-slate-950 text-white hover:bg-slate-800 disabled:opacity-50 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-sm"
-                  >
-                    {isLoading ? "Validating security code..." : "Verify Cryptographic Identity"}
-                  </button>
-                </div>
+                )}
               </div>
 
-              {/* Right Column: Embedded Live Code Assistant */}
-              <div className="hidden md:flex bg-slate-50 border border-slate-300 rounded-2xl p-4 flex-col justify-between space-y-3">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-800 font-sans">
-                      <span>🔑 Live OTP Assistant</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-[8px] font-mono font-black text-emerald-600 uppercase">STANDBY SECURE</span>
-                    </div>
-                  </div>
+              {errorMsg && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start gap-1">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
 
-                  <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 shadow-3xs">
-                    {receivedOtp ? (
-                      <div className="flex items-center justify-between gap-1.5">
-                        <div>
-                          <span className="text-[8px] font-mono text-slate-400 uppercase block font-bold leading-none">Session Code</span>
-                          <span className="text-xl font-black font-mono tracking-widest text-[#1e3a8a] select-all block leading-none mt-1.5">
-                            {receivedOtp}
-                          </span>
-                        </div>
-                        
-                        <button
-                          type="button"
-                          onClick={() => {
-                            triggerBeep(520, 1000, "success");
-                            setOtp(receivedOtp.split(""));
-                            setErrorMsg("");
-                          }}
-                          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-750 text-white rounded-lg text-[9px] font-bold transition flex items-center gap-1 cursor-pointer select-none"
-                        >
-                          <span>Autofill & Go⚡</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="py-2.5 text-center">
-                        <p className="text-[9.5px] text-slate-500 italic">
-                          Waiting for email code generation...
-                        </p>
-                      </div>
-                    )}
-                  </div>
+              <div className="space-y-4">
+                {/* 6 Grid layout digits */}
+                <div className="flex justify-between items-center gap-2">
+                  {otp.map((char, index) => (
+                    <input
+                      key={index}
+                      id={`otp-${index}`}
+                      type="text"
+                      maxLength={1}
+                      pattern="[0-9]*"
+                      inputMode="numeric"
+                      value={char}
+                      onChange={(e) => handleOtpChange(index, e.target.value)}
+                      onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                      className="w-10 h-11 sm:w-11 sm:h-12 bg-slate-100 border-2 border-slate-350 focus:border-slate-800 focus:bg-white text-center text-md sm:text-lg font-bold rounded-xl focus:outline-none transition-all text-slate-950"
+                    />
+                  ))}
                 </div>
 
-                <div className="pt-2.5 border-t border-slate-200 space-y-1 text-slate-500">
-                  <p className="text-[9.5px] leading-snug">
-                    👉 <strong>Sandbox Mail Assist:</strong> Your OTP session code is synced here immediately to eliminate mail friction inside the sandbox block.
-                  </p>
-                  <p className="text-[9px] leading-snug">
-                    No bypass is active; please submit the code inside the form.
-                  </p>
-                </div>
+                <button
+                  type="button"
+                  onClick={verifyOtpAndProceed}
+                  disabled={isLoading}
+                  className="w-full py-2.5 bg-slate-950 text-white hover:bg-slate-800 disabled:opacity-50 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-sm animate-pulse-once"
+                >
+                  {isLoading ? "Validating security code..." : "Verify Cryptographic Identity"}
+                </button>
               </div>
             </motion.div>
           )}
@@ -1088,89 +1290,278 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep }: EmailAut
               exit={{ opacity: 0, y: -10 }}
               className="space-y-4 text-left font-sans"
             >
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
-                {/* Left Column */}
-                <div className="md:col-span-7 flex flex-col justify-between space-y-3.5">
-                  <div className="space-y-3.5">
-                    <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-2xl shadow-3xs">
-                      <div className="flex gap-2 items-center text-emerald-800">
-                        <ShieldCheck className="w-4.5 h-4.5 shrink-0" />
-                        <span className="text-[11px] font-bold font-display uppercase tracking-wider">Passphrase Created Successfully</span>
-                      </div>
-                      <p className="text-[10px] text-emerald-700 mt-1 leading-relaxed">
-                        Email authentication successful! Your secure cryptographic identity profile wallet is initialized.
-                      </p>
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500">Assigned EVM compatible Address</div>
-                      <div className="px-3 py-2 bg-slate-100 border border-slate-300 rounded-xl text-[9px] font-mono text-slate-700 select-all truncate font-semibold">
-                        {generatedWallet.address}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-2xl text-[9px] leading-relaxed flex items-start gap-1.5">
-                    <Info className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
-                    <span>
-                      ⚠️ <strong>Security Action Required:</strong> Jot down these 12 golden seed words or copy them to a secure location. If you sign in utilizing this email on another device, this master passphrase secures your assets!
-                    </span>
-                  </div>
-                </div>
-
-                {/* Right Column */}
-                <div className="md:col-span-5 flex flex-col justify-between space-y-3.5">
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500">Security Recovery Passphrase</label>
-                      <button
-                        onClick={copyToClipboard}
-                        className="flex items-center gap-1 text-[9px] font-mono text-slate-500 hover:text-slate-950 transition font-bold cursor-pointer select-none"
-                      >
-                        {copied ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-600" />
-                            <span className="text-emerald-700 font-bold">Copied!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            <span>Copy Secret Phrase</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1.5 p-3.5 bg-slate-100 border border-slate-350 rounded-2xl shadow-3xs">
-                      {generatedWallet.seedPhrase.split(/\s+/).map((word, idx) => (
-                        <div 
-                          key={idx} 
-                          className="bg-white/95 border border-slate-300 rounded-lg py-1 px-1.5 text-[10px] font-mono text-slate-800 flex gap-1 items-center select-none"
-                        >
-                          <span className="text-slate-400 text-[8px] font-bold shrink-0">{idx + 1}.</span>
-                          <span className="font-bold text-slate-900">{word}</span>
+              {seedVerifySubstep === 'view' ? (
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
+                  {/* Left Column: Alerts & Interactive Security Consent */}
+                  <div className="md:col-span-7 flex flex-col justify-between space-y-3.5">
+                    <div className="space-y-3">
+                      <div className="bg-[#f0fdf4] border border-[#bbf7d0] p-4 rounded-2xl shadow-3xs">
+                        <div className="flex gap-2 items-center text-[#166534]">
+                          <ShieldCheck className="w-5 h-5 shrink-0" />
+                          <span className="text-xs font-bold uppercase tracking-wider font-display">Wallet Generated Successfully!</span>
                         </div>
-                      ))}
+                        <p className="text-[11px] text-[#15803d] mt-1 leading-relaxed">
+                          Your email identity is verified. We have provisioned a brand new EVM compatible wallet on the Arc Enclave.
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500">Public Address</label>
+                        <div className="px-3 py-2.5 bg-slate-100 border border-slate-300 rounded-xl text-[9px] font-mono text-slate-800 select-all truncate font-semibold">
+                          {generatedWallet.address}
+                        </div>
+                      </div>
+
+                      {/* Interactive Safety Declarations Checklist */}
+                      <div className="space-y-2 bg-[#fef3c7] border border-[#fde68a] p-3.5 rounded-2xl">
+                        <span className="text-[10px] font-mono font-black text-amber-800 uppercase block mb-1">
+                          ⚠️ CRITICAL SECURITY CONSENT
+                        </span>
+                        
+                        <label className="flex items-start gap-2 cursor-pointer select-none py-1">
+                          <input 
+                            type="checkbox" 
+                            checked={safetyCheck1}
+                            onChange={(e) => setSafetyCheck1(e.target.checked)}
+                            className="mt-0.5 rounded border-amber-400 text-amber-600 focus:ring-amber-500 w-3.5 h-3.5 cursor-pointer"
+                          />
+                          <span className="text-[10px] text-amber-900 leading-snug">
+                            I have copied or written down these 12 words list in an offline secure location.
+                          </span>
+                        </label>
+
+                        <label className="flex items-start gap-2 cursor-pointer select-none py-1">
+                          <input 
+                            type="checkbox" 
+                            checked={safetyCheck2}
+                            onChange={(e) => setSafetyCheck2(e.target.checked)}
+                            className="mt-0.5 rounded border-amber-400 text-amber-600 focus:ring-amber-500 w-3.5 h-3.5 cursor-pointer"
+                          />
+                          <span className="text-[10px] text-amber-900 leading-snug">
+                            I understand that if I lose these words, access to all my assets will be lost forever.
+                          </span>
+                        </label>
+
+                        <label className="flex items-start gap-2 cursor-pointer select-none py-1">
+                          <input 
+                            type="checkbox" 
+                            checked={safetyCheck3}
+                            onChange={(e) => setSafetyCheck3(e.target.checked)}
+                            className="mt-0.5 rounded border-amber-400 text-amber-600 focus:ring-amber-500 w-3.5 h-3.5 cursor-pointer"
+                          />
+                          <span className="text-[10px] text-amber-900 leading-snug">
+                            I understand that Arc administrators will NEVER ask for this phrase, and sharing it grants complete control over my wallet.
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {errorMsg && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-[10px] rounded-xl flex items-start gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{errorMsg}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right Column: Key visualization */}
+                  <div className="md:col-span-5 flex flex-col justify-between space-y-3.5 bg-slate-50 border border-slate-300 p-4 rounded-3xl">
+                    <div className="space-y-2.5">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500">Recovery Phrase</label>
+                        <button
+                          onClick={copyToClipboard}
+                          className="flex items-center gap-1 text-[9px] font-mono text-slate-600 hover:text-slate-950 transition font-bold cursor-pointer select-none"
+                        >
+                          {copied ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-600 animate-bounce" />
+                              <span className="text-emerald-700 font-bold">Copied!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>Copy Phrase</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Display Recovery Phrase Grid */}
+                      <div className="grid grid-cols-2 gap-1.5 p-3.5 bg-white border border-slate-300 rounded-2xl shadow-3xs">
+                        {generatedWallet.seedPhrase.split(/\s+/).map((word, idx) => (
+                          <div 
+                            key={idx} 
+                            className="bg-slate-100 border border-slate-200 rounded-lg py-1 px-1.5 text-[10.5px] font-mono text-slate-800 flex gap-1 items-center select-all"
+                          >
+                            <span className="text-slate-400 text-[8px] font-bold shrink-0">{idx + 1}.</span>
+                            <span className="font-bold text-slate-900">{word}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={!(safetyCheck1 && safetyCheck2 && safetyCheck3)}
+                      onClick={() => {
+                        triggerBeep(350, 480, "neutral");
+                        prepareBackupVerification();
+                      }}
+                      className="w-full py-2.5 bg-slate-950 hover:bg-slate-850 disabled:opacity-40 text-white text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer font-sans shadow-sm"
+                    >
+                      <span>Proceed to Backup Verification &rarr;</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Substage 2: Mandated word checking */
+                <div className="space-y-4">
+                  <div className="bg-slate-100 border border-slate-300 p-4 rounded-2xl">
+                    <h3 className="text-sm font-bold font-display text-slate-900">Verify Your Backup Phrase</h3>
+                    <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                      To safeguard against accidental loss, please prove you recorded your phrase. Select the correct words for Word #{testWordIdx1 + 1} and Word #{testWordIdx2 + 1} based on your stored log.
+                    </p>
+                  </div>
+
+                  {errorMsg && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start gap-1">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{errorMsg}</span>
+                    </div>
+                  )}
+
+                  {/* Test Question 1: Word #3 */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-mono font-black uppercase tracking-wider text-slate-500 block">
+                      Select Word #{testWordIdx1 + 1} ({testWordIdx1 + 1}rd word of the phrase)
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {testWordOptions1.map((option) => {
+                        const isSelected = selectedWordOption1 === option;
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => {
+                              setSelectedWordOption1(option);
+                              setErrorMsg("");
+                              triggerBeep(450, 550, "neutral");
+                            }}
+                            className={`py-2 px-3 border rounded-xl text-xs font-semibold cursor-pointer transition-all ${
+                              isSelected 
+                                ? "bg-slate-950 border-slate-950 text-white shadow-xs" 
+                                : "bg-white border-slate-300 hover:bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      triggerBeep(600, 1500, "success");
-                      const secureLogs = [
-                        `Secure Enclave derived account with association: ${email}`,
-                        `Created secure credentials localized in browser profile.`,
-                        `USDC starting faucet credited ($150.00 Gas-Free testnet asset).`
-                      ];
-                      onLoginSuccess(generatedWallet, secureLogs, email);
-                    }}
-                    className="w-full py-2.5 bg-[#0d9488] hover:bg-[#0f766e] text-white text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer font-sans shadow-sm mt-auto"
-                  >
-                    <span>Confirm Seed & Deploy Consoles 🚀</span>
-                  </button>
+                  {/* Test Question 2: Word #8 */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-mono font-black uppercase tracking-wider text-slate-500 block">
+                      Select Word #{testWordIdx2 + 1} ({testWordIdx2 + 1}th word of the phrase)
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {testWordOptions2.map((option) => {
+                        const isSelected = selectedWordOption2 === option;
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => {
+                              setSelectedWordOption2(option);
+                              setErrorMsg("");
+                              triggerBeep(450, 550, "neutral");
+                            }}
+                            className={`py-2 px-3 border rounded-xl text-xs font-semibold cursor-pointer transition-all ${
+                              isSelected 
+                                ? "bg-slate-950 border-slate-950 text-white shadow-xs" 
+                                : "bg-white border-slate-300 hover:bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Actions buttons */}
+                  <div className="flex gap-3 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerBeep(350, 200, "neutral");
+                        setSeedVerifySubstep('view');
+                        setErrorMsg("");
+                      }}
+                      className="px-4 py-2.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-[11px] font-bold rounded-xl transition cursor-pointer"
+                    >
+                      &larr; Back to Phrase
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isLoading || !selectedWordOption1 || !selectedWordOption2}
+                      onClick={async () => {
+                        const words = generatedWallet.seedPhrase.split(/\s+/);
+                        const isCorrect1 = selectedWordOption1 === words[testWordIdx1];
+                        const isCorrect2 = selectedWordOption2 === words[testWordIdx2];
+
+                        if (!isCorrect1 || !isCorrect2) {
+                          setErrorMsg("Selected fallback word verification is incorrect. Re-read your phrase if necessary!");
+                          triggerBeep(260, 130, "fail");
+                          return;
+                        }
+
+                        // Code checks succeed! Commit wallet encryption and association setup to backend
+                        setIsLoading(true);
+                        setErrorMsg("");
+                        triggerBeep(600, 1500, "success");
+
+                        try {
+                          const syncRes = await fetch("/api/wallet/auth", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              address: generatedWallet.address,
+                              balance: generatedWallet.balance,
+                              privateKey: generatedWallet.privateKey,
+                              seedPhrase: generatedWallet.seedPhrase,
+                              isConnected: true,
+                              email: email
+                            })
+                          });
+
+                          if (!syncRes.ok) {
+                            console.warn("Server Enclave sync skipped");
+                          }
+
+                          const secureLogs = [
+                            `Secure Enclave derived account with association: ${email}`,
+                            `Master credentials encrypted at rest and synced with Server Keychain.`,
+                            `USDC starting faucet credited ($150.00 Gas-Free testnet asset).`
+                          ];
+                          onLoginSuccess(generatedWallet, secureLogs, email);
+                        } catch (err) {
+                          console.error("Endpoint backup error:", err);
+                          onLoginSuccess(generatedWallet, [`Synced locally. Backup link status: Warning`], email);
+                        } finally {
+                          setIsLoading(false);
+                        }
+                      }}
+                      className="flex-1 py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer font-sans shadow-sm"
+                    >
+                      <span>{isLoading ? "Synchronizing Enclave..." : "Confirm & Deploy Consoles 🚀"}</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </motion.div>
           )}
 

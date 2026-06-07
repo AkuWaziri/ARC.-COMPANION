@@ -34,10 +34,14 @@ import ContactsDatabase from "./components/ContactsDatabase";
 import SecurityConsole from "./components/SecurityConsole";
 import TransactionHistory from "./components/TransactionHistory";
 import EmailAuthModal from "./components/EmailAuthModal";
+import { useAuth } from "./context/AuthContext";
+import { AuthGuard } from "./components/AuthGuard";
 import robotAvatar from "./assets/images/friendly_bot_logo_1780649113441.png";
 import { Message, WalletState, Contact, Transaction, SecurityConfig } from "./types";
 
 export default function App() {
+  const { wallet: contextWallet, connectWallet, logout } = useAuth();
+
   const [wallet, setWallet] = useState<WalletState>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("arc_wallet_session");
@@ -295,45 +299,16 @@ export default function App() {
     };
   }, []);
 
-  // Fetch initial state
+  // Synchronize wallet state and fetch related parameters when context wallet settles
   useEffect(() => {
-    const initializeRuntimeSession = async () => {
-      let savedSession = null;
-      if (typeof window !== "undefined") {
-        const saved = localStorage.getItem("arc_wallet_session");
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            if (parsed && parsed.isConnected) {
-              savedSession = parsed;
-            }
-          } catch (e) {}
-        }
-      }
-
-      if (savedSession) {
-        addSecurityLog(`Securing node session from local enclave parameters: ${savedSession.address.slice(0, 10)}...`);
-        try {
-          await fetch("/api/wallet/auth", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(savedSession)
-          });
-        } catch (e) {
-          console.error("Session sync rejected:", e);
-        }
-      }
-
-      await fetchWallet(savedSession?.address);
-      await fetchContacts();
-      await fetchTransactions(savedSession?.address);
-      
-      addSecurityLog("System hardware tunnel initialized on Arc Testnet Node #289.");
-      addSecurityLog("Asymmetric public keys generated and binded keypair inside secure browser enclave.");
-    };
-
-    initializeRuntimeSession();
-  }, []);
+    if (contextWallet && contextWallet.isConnected) {
+      setWallet(contextWallet);
+      fetchWallet(contextWallet.address);
+      fetchContacts();
+      fetchTransactions(contextWallet.address);
+      addSecurityLog(`Authentication credentials verified. Initialized session at Address: ${contextWallet.address.slice(0, 10)}...`);
+    }
+  }, [contextWallet]);
 
   // Scroll chat
   useEffect(() => {
@@ -347,8 +322,10 @@ export default function App() {
   };
 
   const handleLoginSuccess = async (newWallet: WalletState, secureLogs: string[], userEmail?: string) => {
+    localStorage.removeItem("arc_user_signed_out");
     setWallet(newWallet);
     localStorage.setItem("arc_wallet_session", JSON.stringify(newWallet));
+    connectWallet(newWallet);
     
     // Sync backend wallet state
     try {
@@ -392,6 +369,9 @@ export default function App() {
 
     setWallet(disconnectedWallet);
     localStorage.removeItem("arc_wallet_session");
+    localStorage.removeItem("arc_session_token");
+    localStorage.setItem("arc_user_signed_out", "true");
+    logout();
 
     // Sync disconnected state back to server
     try {
@@ -933,7 +913,11 @@ export default function App() {
   };
 
   return (
-    <div id="ai-money-agent-app" className="h-[100dvh] max-h-[100dvh] md:h-screen md:max-h-screen overflow-hidden bg-slate-200 text-slate-900 flex flex-col font-sans selection:bg-slate-300 selection:text-slate-900">
+    <AuthGuard 
+      triggerBeep={triggerSynthBeep} 
+      onLoginSuccess={handleLoginSuccess}
+    >
+      <div id="ai-money-agent-app" className="h-[100dvh] max-h-[100dvh] md:h-screen md:max-h-screen overflow-hidden bg-slate-200 text-slate-900 flex flex-col font-sans selection:bg-slate-300 selection:text-slate-900">
       
       {/* Top Floating Header Rail */}
       <div className={`shrink-0 sticky top-0 z-50 w-full px-2 pt-2 sm:px-6 sm:pt-4 transition-all duration-300 ease-in-out ${
@@ -1583,14 +1567,7 @@ export default function App() {
           </div>
         </div>
       </footer>
-
-      {/* Email / Gmail Auth Modal Portal overlay */}
-      {!wallet.isConnected && (
-        <EmailAuthModal 
-          onLoginSuccess={handleLoginSuccess}
-          triggerBeep={triggerSynthBeep}
-        />
-      )}
     </div>
+    </AuthGuard>
   );
 }

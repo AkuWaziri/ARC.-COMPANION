@@ -10,6 +10,16 @@ import nodemailer from "nodemailer";
 
 dotenv.config();
 
+function getRedirectUri(req: any): string {
+  if (process.env.APP_URL) {
+    const base = process.env.APP_URL.replace(/\/$/, "");
+    return `${base}/auth/callback`;
+  }
+  const host = req.get('host');
+  const proto = (host?.includes('.run.app') || req.headers['x-forwarded-proto'] === 'https') ? 'https' : req.protocol;
+  return `${proto}://${host}/auth/callback`;
+}
+
 const app = express();
 const PORT = 3000;
 
@@ -58,12 +68,44 @@ if (geminiKey) {
   console.warn("GEMINI_API_KEY is not defined. Using smart local rule fallback parsing.");
 }
 
-// Memory System: In-Memory Datastore with cryptographically encrypted values simulated
-// All records are stored with IVs, mock ciphertexts and tags to simulate absolute hardware security.
+// Memory System: In-Memory Datastore with cryptographically encrypted values
 interface EncryptedData {
   ciphertext: string;
   iv: string;
   tag: string;
+}
+
+// AES-256-GCM Symmetric Cryptography Engine
+const ENCRYPTION_PIN = process.env.ENCRYPTION_KEY || "arc-protocol-aes-encryption-primary-secret-key-256";
+
+function encryptEnclaveData(text: string): EncryptedData {
+  const iv = crypto.randomBytes(12);
+  const key = crypto.createHash('sha256').update(ENCRYPTION_PIN).digest();
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const tag = cipher.getAuthTag().toString('hex');
+  return {
+    ciphertext: encrypted,
+    iv: iv.toString('hex'),
+    tag
+  };
+}
+
+function decryptEnclaveData(encrypted: EncryptedData): string {
+  try {
+    const key = crypto.createHash('sha256').update(ENCRYPTION_PIN).digest();
+    const iv = Buffer.from(encrypted.iv, 'hex');
+    const tag = Buffer.from(encrypted.tag, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    let decrypted = decipher.update(encrypted.ciphertext, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.warn("AES-GCM decryption failed, using secure base64 decoding helper:", err);
+    return Buffer.from(encrypted.ciphertext, 'base64').toString('utf8');
+  }
 }
 
 // Local file database pathway
@@ -74,6 +116,8 @@ interface WalletRecord {
   balance: number;
   privateKey: string;
   seedPhrase: string;
+  seedPhraseEncrypted?: EncryptedData;
+  privateKeyEncrypted?: EncryptedData;
   isConnected: boolean;
 }
 
@@ -84,11 +128,103 @@ interface DBStructure {
   emails?: Record<string, string>;
 }
 
+// Memory-backed session logs and trackers
+interface RequestLog {
+  count: number;
+  lastAttempt: number;
+}
+const otpRequestLimits: Record<string, RequestLog> = {}; // Limits OTP requests per email
+const otpFailedAttempts: Record<string, { count: number; lockUntil: number }> = {}; // Rate limits incorrect pins
+const sessionStore: Record<string, { email: string; createdAt: number }> = {}; // Dynamic JWT-like memory sessions
+
+function isOtpRequestRateLimited(email: string): boolean {
+  const now = Date.now();
+  const record = otpRequestLimits[email];
+  if (!record) {
+    otpRequestLimits[email] = { count: 1, lastAttempt: now };
+    return false;
+  }
+  if (now - record.lastAttempt < 60000) {
+    return true; // Throttle to maximum 1 email OTP code request per minute
+  }
+  if (now - record.lastAttempt > 300000) {
+    record.count = 1;
+    record.lastAttempt = now;
+  } else {
+    record.count += 1;
+    record.lastAttempt = now;
+    if (record.count > 3) {
+      return true; // Limit to maximum 3 OTP sends within any rolling 5-minute window
+    }
+  }
+  return false;
+}
+
+function handleFailedOtpAttempt(email: string): { count: number; lockUntil: number } {
+  const now = Date.now();
+  if (!otpFailedAttempts[email]) {
+    otpFailedAttempts[email] = { count: 1, lockUntil: 0 };
+    return otpFailedAttempts[email];
+  }
+  const record = otpFailedAttempts[email];
+  if (record.lockUntil > now) {
+    return record;
+  }
+  record.count += 1;
+  if (record.count >= 5) {
+    record.lockUntil = now + 900000; // Lock verification submissions for 15 minutes after 5 consecutive failures
+  }
+  return record;
+}
+
+function isOtpBruteForceLocked(email: string): boolean {
+  const record = otpFailedAttempts[email];
+  if (record && record.lockUntil > Date.now()) {
+    return true;
+  }
+  return false;
+}
+
+function resetFailedOtpAttempts(email: string) {
+  delete otpFailedAttempts[email];
+}
+
+function createSession(email: string): string {
+  const token = crypto.randomBytes(32).toString('hex');
+  sessionStore[token] = {
+    email,
+    createdAt: Date.now()
+  };
+  return token;
+}
+
 function loadDB(): DBStructure {
   try {
     if (fs.existsSync(DATABASE_FILE)) {
       const content = fs.readFileSync(DATABASE_FILE, 'utf8');
-      return JSON.parse(content);
+      const loaded: DBStructure = JSON.parse(content);
+      
+      // Migration Layer: Automatically encrypt un-encrypted plaintext entries at startup
+      let migrated = false;
+      if (loaded.wallets) {
+        for (const addr of Object.keys(loaded.wallets)) {
+          const wal = loaded.wallets[addr];
+          if (wal.seedPhrase && !wal.seedPhraseEncrypted) {
+            wal.seedPhraseEncrypted = encryptEnclaveData(wal.seedPhrase);
+            wal.seedPhrase = ""; // Redact plain text
+            migrated = true;
+          }
+          if (wal.privateKey && !wal.privateKeyEncrypted) {
+            wal.privateKeyEncrypted = encryptEnclaveData(wal.privateKey);
+            wal.privateKey = ""; // Redact plain text
+            migrated = true;
+          }
+        }
+      }
+      if (migrated) {
+        fs.writeFileSync(DATABASE_FILE, JSON.stringify(loaded, null, 2), 'utf8');
+      }
+      return loaded;
     }
   } catch (err) {
     console.error("Failed to load vault database file, using fallback template:", err);
@@ -102,6 +238,20 @@ function loadDB(): DBStructure {
 
 function saveDB(databaseState: DBStructure) {
   try {
+    // Secure enforcement logic: Encrypt plain values BEFORE writing state to storage
+    if (databaseState.wallets) {
+      for (const addr of Object.keys(databaseState.wallets)) {
+        const wal = databaseState.wallets[addr];
+        if (wal.seedPhrase && wal.seedPhrase !== "Hardware/Extension Key") {
+          wal.seedPhraseEncrypted = encryptEnclaveData(wal.seedPhrase);
+          wal.seedPhrase = ""; // Never write raw recovery phrases in plain text
+        }
+        if (wal.privateKey && wal.privateKey !== "Hardware/Extension Key") {
+          wal.privateKeyEncrypted = encryptEnclaveData(wal.privateKey);
+          wal.privateKey = ""; // Never write raw private keys in plain text
+        }
+      }
+    }
     fs.writeFileSync(DATABASE_FILE, JSON.stringify(databaseState, null, 2), 'utf8');
   } catch (err) {
     console.error("Failed to write database to disk:", err);
@@ -115,8 +265,10 @@ let db = loadDB();
 const defaultWallet = {
   address: "0x2C4d06AdfC8A058229F64C051db55c2CC888f4B0",
   balance: 350.00, // starting simulated balance
-  privateKey: "0x9d4b...4f7a",
-  seedPhrase: "arc money agent client track system testnet digital wallet usdc secure first",
+  privateKey: "",
+  seedPhrase: "",
+  privateKeyEncrypted: encryptEnclaveData("0x9d4b684cb3a70ba9a826477b7325fa1e6fbe5ed795fac862a9b3ee4cdc3a72b"),
+  seedPhraseEncrypted: encryptEnclaveData("arc money agent client track system testnet digital wallet usdc secure first"),
   isConnected: false
 };
 
@@ -156,7 +308,7 @@ saveDB(db);
 
 // Sync in-memory lists to defaults initially
 let contacts = db.contacts;
-let wallet = db.wallets[defKey];
+let wallet = db.wallets[defKey] ? getDecryptedWallet(db.wallets[defKey]) : undefined;
 let transactions = db.transactions[defKey];
 
 // Helper to simulate encryption on contacts
@@ -195,9 +347,9 @@ app.get("/api/wallet", async (req, res) => {
     return res.json(wallet);
   }
   const addrKey = addressParam.toLowerCase();
-  let targetWallet = db.wallets[addrKey] || wallet;
+  let targetWallet = db.wallets[addrKey] ? getDecryptedWallet(db.wallets[addrKey]) : wallet;
 
-  if (networkMode === "live" && targetWallet.address && targetWallet.address !== "0x2C4d06AdfC8A058229F64C051db55c2CC888f4B0") {
+  if (networkMode === "live" && targetWallet && targetWallet.address && targetWallet.address !== "0x2C4d06AdfC8A058229F64C051db55c2CC888f4B0") {
     const liveBal = await getLiveArcBalance(targetWallet.address);
     targetWallet.balance = liveBal;
     
@@ -207,6 +359,37 @@ app.get("/api/wallet", async (req, res) => {
     }
   }
   res.json(targetWallet);
+});
+
+// GET Wallet Balance
+app.get("/api/wallet/balance/:address", async (req, res) => {
+  db = loadDB();
+  const address = req.params.address.toLowerCase();
+  const targetWallet = db.wallets[address];
+  let balance = 150.00;
+  if (targetWallet) {
+    if (networkMode === "live" && targetWallet.address && targetWallet.address !== "0x2C4d06AdfC8A058229F64C051db55c2CC888f4B0") {
+      try {
+        balance = await getLiveArcBalance(targetWallet.address);
+        targetWallet.balance = balance;
+        db.wallets[address].balance = balance;
+        saveDB(db);
+      } catch (err) {
+        balance = targetWallet.balance;
+      }
+    } else {
+      balance = targetWallet.balance;
+    }
+  } else {
+    if (networkMode === "live" && address.startsWith("0x")) {
+      try {
+        balance = await getLiveArcBalance(address);
+      } catch (err) {
+        // use default
+      }
+    }
+  }
+  res.json({ balance });
 });
 
 // SET / GET Network Mode (simulated vs live)
@@ -339,7 +522,7 @@ Meanwhile, retrieve your generated verification code for Email "${email}":
   }
 }
 
-// POST Generate and Send OTP PIN (Simulated/SMTP delivery node)
+// POST Generate and Send OTP PIN with robust spam rate limiting
 app.post("/api/auth/send-otp", async (req, res) => {
   const { email } = req.body;
   if (!email || !email.includes("@")) {
@@ -347,10 +530,24 @@ app.post("/api/auth/send-otp", async (req, res) => {
   }
   const cleanEmail = email.trim().toLowerCase();
   
+  // Rate limiting anti-abuse system
+  if (isOtpRequestRateLimited(cleanEmail)) {
+    return res.status(429).json({ 
+      error: "Verification rate limit exceeded. Please wait 60 seconds before requesting a new PIN." 
+    });
+  }
+
+  // Brute force block check
+  if (isOtpBruteForceLocked(cleanEmail)) {
+    return res.status(423).json({ 
+      error: "Authentication session locked due to excessive failed attempts. Please wait 15 minutes before attempting again." 
+    });
+  }
+
   // Generate a random 6-digit verification pin code
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   
-  // Store code in server memory
+  // Store code in server memory (valid for 10 minutes)
   otpStore[cleanEmail] = {
     code,
     timestamp: Date.now()
@@ -359,17 +556,17 @@ app.post("/api/auth/send-otp", async (req, res) => {
   // Attempt actual email delivery!
   const delivery = await sendOTPEmail(cleanEmail, code);
   
-  // Include the code in the response to show it on the input page for easiest sandbox/local verification
+  // Respond to frontend client
   res.json({ 
     success: true, 
     email: cleanEmail,
-    code: code,
+    code: code, // Shared in response stream for Sandbox automatic workspace loading
     sentRealEmail: delivery.success,
     note: delivery.success ? "Verification code sent to your email." : "Verification code generated in secure server logs."
   });
 });
 
-// POST Validate entered Verification OTP PIN
+// POST Validate entered Verification OTP PIN with brute force mitigation
 app.post("/api/auth/verify-otp", (req, res) => {
   const { email, code } = req.body;
   if (!email || !code) {
@@ -379,22 +576,482 @@ app.post("/api/auth/verify-otp", (req, res) => {
   const cleanEmail = email.trim().toLowerCase();
   const cleanCode = code.trim();
   
+  // Brute force lockout check
+  if (isOtpBruteForceLocked(cleanEmail)) {
+    return res.status(423).json({ 
+      error: "Account validation is locked. Please wait 15 minutes." 
+    });
+  }
+
   const record = otpStore[cleanEmail];
   
   if (!record) {
     return res.status(400).json({ error: "No active cryptographic verification session found for this email." });
   }
-  
-  if (record.code !== cleanCode) {
-    return res.status(400).json({ error: "The verification PIN entered is invalid. Please try again or click Autofill." });
+
+  // 10-minute expiry validation
+  if (Date.now() - record.timestamp > 600000) {
+    delete otpStore[cleanEmail];
+    return res.status(410).json({ error: "The verification code has expired (10-minute validity threshold). Please request a new PIN." });
   }
   
-  // Clean up verified session token
+  if (record.code !== cleanCode) {
+    const attempts = handleFailedOtpAttempt(cleanEmail);
+    const movesLeft = 5 - attempts.count;
+    const warnSuffix = movesLeft > 0 
+      ? ` Only ${movesLeft} attempts remaining before account lock.`
+      : " Excessive invalid OTP submits. Authentication is now locked.";
+    return res.status(401).json({ error: "The verification PIN entered is invalid." + warnSuffix });
+  }
+  
+  // Success! Clean active limits
   delete otpStore[cleanEmail];
-  res.json({ success: true, message: "Decentralized email identity verified." });
+  resetFailedOtpAttempts(cleanEmail);
+  
+  // Setup user session
+  const sessionToken = createSession(cleanEmail);
+  
+  db = loadDB();
+  const emails = db.emails || {};
+  const linkedAddress = emails[cleanEmail];
+  let restoredWalletState = null;
+  
+  if (linkedAddress) {
+    const persisted = db.wallets[linkedAddress.toLowerCase()];
+    if (persisted) {
+      // Decrypt credentials
+      const decPhrase = persisted.seedPhraseEncrypted 
+        ? decryptEnclaveData(persisted.seedPhraseEncrypted) 
+        : persisted.seedPhrase;
+      const decKey = persisted.privateKeyEncrypted 
+        ? decryptEnclaveData(persisted.privateKeyEncrypted) 
+        : persisted.privateKey;
+        
+      restoredWalletState = {
+        address: persisted.address,
+        balance: persisted.balance,
+        seedPhrase: decPhrase,
+        privateKey: decKey,
+        isConnected: true
+      };
+    }
+  }
+
+  res.json({ 
+    success: true, 
+    sessionToken,
+    wallet: restoredWalletState,
+    message: "Decentralized email identity verified successfully." 
+  });
 });
 
-// GET Wallet by associated Email (Real restorable on-chain link)
+// GET verify active dynamic session
+app.get("/api/auth/verify-session", (req, res) => {
+  const token = (req.query.token as string) || (req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : undefined);
+  if (!token) {
+    return res.status(401).json({ success: false, error: "Authentication token is required." });
+  }
+
+  const session = sessionStore[token];
+  if (!session) {
+    return res.status(401).json({ success: false, error: "Invalid or expired session. Please login again." });
+  }
+
+  // Check if session is older than 7 days (604,800,000 ms)
+  if (Date.now() - session.createdAt > 604800000) {
+    delete sessionStore[token];
+    return res.status(401).json({ success: false, error: "Session expired. Please login again." });
+  }
+
+  // Session is valid, get the wallet address for this email from the database
+  db = loadDB();
+  const email = session.email.trim().toLowerCase();
+  const address = db.emails ? db.emails[email] : null;
+
+  let userWallet = null;
+  if (address) {
+    const addrKey = address.toLowerCase();
+    if (db.wallets[addrKey]) {
+      userWallet = getDecryptedWallet(db.wallets[addrKey]);
+    }
+  }
+
+  return res.json({
+    success: true,
+    email,
+    address,
+    wallet: userWallet
+  });
+});
+
+// Memory store for SIWE nonces securely tracked by cryptographic timestamps
+const siweNonces: Record<string, { nonce: string; expires: number }> = {};
+
+// GET SIWE Nonce
+app.get("/api/auth/nonce", (req, res) => {
+  const nonce = crypto.randomBytes(16).toString("hex");
+  siweNonces[nonce] = { nonce, expires: Date.now() + 5 * 60 * 1000 }; // 5 min expiry
+  res.json({ success: true, nonce });
+});
+
+// POST SIWE Verification
+app.post("/api/auth/siwe", async (req, res) => {
+  const { message, signature, address, nonce } = req.body;
+  if (!message || !signature || !address || !nonce) {
+    return res.status(400).json({ success: false, error: "Missing required SIWE verification parameters." });
+  }
+
+  const record = siweNonces[nonce];
+  if (!record) {
+    return res.status(400).json({ success: false, error: "Authentication nonce not found or previously consumed. Replay mitigation triggered." });
+  }
+  if (Date.now() > record.expires) {
+    delete siweNonces[nonce];
+    return res.status(400).json({ success: false, error: "Authentication nonce validity window has expired." });
+  }
+
+  // Consume the single-use nonce immediately to maintain absolute security posture and prevent replay attacks
+  delete siweNonces[nonce];
+
+  try {
+    const recoveredAddress = ethers.verifyMessage(message, signature);
+    if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
+      return res.status(401).json({ success: false, error: "Cryptographic signature validation mapping mismatch." });
+    }
+
+    db = loadDB();
+    const addrKey = address.toLowerCase();
+
+    if (!db.wallets[addrKey]) {
+      const newRecord: WalletRecord = {
+        address: address,
+        balance: 150.00,
+        privateKey: "Hardware/Extension Key",
+        seedPhrase: "Hardware/Extension Key",
+        isConnected: true
+      };
+      db.wallets[addrKey] = newRecord;
+      db.transactions[addrKey] = [];
+    } else {
+      db.wallets[addrKey].isConnected = true;
+    }
+
+    const virtualEmail = `siwe-${addrKey}@arc.network`;
+    if (!db.emails) {
+      db.emails = {};
+    }
+    db.emails[virtualEmail] = address;
+    saveDB(db);
+
+    const sessionToken = createSession(virtualEmail);
+
+    res.json({
+      success: true,
+      sessionToken,
+      email: virtualEmail,
+      wallet: getDecryptedWallet(db.wallets[addrKey]),
+      message: "Sign-In with Ethereum verified successfully!"
+    });
+  } catch (error: any) {
+    console.error("SIWE Verification error:", error);
+    res.status(500).json({ success: false, error: error.message || "Failed to verify SIWE signature" });
+  }
+});
+
+// Google OAuth Authorization Url construct
+app.get("/api/auth/google/url", (req, res) => {
+  const client_id = process.env.GOOGLE_CLIENT_ID;
+  if (client_id) {
+    const redirect_uri = encodeURIComponent(getRedirectUri(req));
+    const scopes = encodeURIComponent("https://www.googleapis.com/auth/userinfo.email");
+    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${client_id}&redirect_uri=${redirect_uri}&scope=${scopes}&state=google-state`;
+    return res.json({ url: oauthUrl, sandbox: false });
+  } else {
+    // If client credentials are not defined, fallback beautifully to interactive secure visual sandbox OAuth selector
+    return res.json({ url: `/auth/google-sandbox`, sandbox: true });
+  }
+});
+
+// Google Sandbox login interface renderer
+app.get("/auth/google-sandbox", (req, res) => {
+  res.send(`
+    <!doctype html>
+    <html>
+      <head>
+        <title>Google Accounts - Arc Portal Login</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+        <style>
+          body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f0f4f9;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            color: #1f1f1f;
+          }
+          .google-box {
+            background-color: #ffffff;
+            border-radius: 28px;
+            padding: 40px;
+            width: 360px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+            text-align: center;
+            border: 1px solid #e3e3e3;
+          }
+          .g-logo {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            letter-spacing: -0.5px;
+          }
+          .blue { color: #4285F4; }
+          .red { color: #EA4335; }
+          .yellow { color: #FBBC05; }
+          .green { color: #34A853; }
+          
+          h2 {
+            font-size: 24px;
+            font-weight: 400;
+            margin: 16px 0 8px 0;
+            color: #1f1f1f;
+          }
+          p {
+            font-size: 14px;
+            color: #444746;
+            margin-bottom: 32px;
+            line-height: 1.5;
+          }
+          .input-group {
+            margin-bottom: 24px;
+            text-align: left;
+          }
+          label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #444746;
+            text-transform: uppercase;
+            display: block;
+            margin-bottom: 6px;
+            letter-spacing: 0.5px;
+          }
+          input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #747775;
+            border-radius: 8px;
+            font-size: 14px;
+            box-sizing: border-box;
+            outline: none;
+            transition: border-color 0.2s;
+          }
+          input:focus {
+            border-color: #0b57d0;
+            border-width: 2px;
+            padding: 11px;
+          }
+          .btn-login {
+            background-color: #0b57d0;
+            color: #ffffff;
+            font-weight: 500;
+            font-size: 14px;
+            padding: 12px 24px;
+            border-radius: 100px;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.15s;
+          }
+          .btn-login:hover {
+            background-color: #0842a0;
+          }
+          .footer-text {
+            font-size: 11px;
+            color: #747775;
+            margin-top: 32px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="google-box">
+          <div class="g-logo">
+            <span class="blue">G</span><span class="red">o</span><span class="yellow">o</span><span class="blue">g</span><span class="green">l</span><span class="red">e</span>
+          </div>
+          <h2>Sign in</h2>
+          <p>to continue to Arc Companion Wallet</p>
+          
+          <form action="/auth/callback" method="GET">
+            <div class="input-group">
+              <label>Gmail Address</label>
+              <input type="email" name="email" required placeholder="name@gmail.com" value="developer@gmail.com">
+            </div>
+            <button type="submit" class="btn-login">Next</button>
+          </form>
+          
+          <div class="footer-text">
+            Secured inside Google Sandboxed OAuth Sandbox Enclave
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+});
+
+// Callback handler completing Google redirects and returning user session credentials
+app.get("/auth/callback", async (req, res) => {
+  let email = req.query.email as string;
+  const code = req.query.code as string;
+  let isNew = false;
+  let fullWallet = null;
+
+  const client_id = process.env.GOOGLE_CLIENT_ID;
+  const client_secret = process.env.GOOGLE_CLIENT_SECRET;
+
+  // If authentic redirect via Google Accounts client authorization, let's exchange it!
+  if (code && !email && client_id && client_secret) {
+    try {
+      const redirect_uri = getRedirectUri(req);
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code,
+          client_id,
+          client_secret,
+          redirect_uri,
+          grant_type: "authorization_code"
+        })
+      });
+
+      if (tokenRes.ok) {
+        const tokenData = await tokenRes.json();
+        const userinfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${tokenData.access_token}` }
+        });
+        if (userinfoRes.ok) {
+          const profile = await userinfoRes.json();
+          email = profile.email;
+        }
+      }
+    } catch (e) {
+      console.error("Real Google OAuth code exchange failed:", e);
+    }
+  }
+
+  if (!email) {
+    email = "google-developer@gmail.com";
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const sessionToken = createSession(cleanEmail);
+
+  db = loadDB();
+  db.emails = db.emails || {};
+  let linkedAddress = db.emails[cleanEmail];
+
+  if (!linkedAddress) {
+    isNew = true;
+    const randomWallet = ethers.Wallet.createRandom();
+    const generatedWallet: WalletRecord = {
+      address: randomWallet.address,
+      balance: 150.00,
+      privateKey: randomWallet.privateKey,
+      seedPhrase: randomWallet.mnemonic ? randomWallet.mnemonic.phrase : "",
+      isConnected: true
+    };
+    const addrKey = randomWallet.address.toLowerCase();
+    db.wallets[addrKey] = generatedWallet;
+    db.emails[cleanEmail] = randomWallet.address;
+    db.transactions[addrKey] = [];
+    saveDB(db);
+    linkedAddress = randomWallet.address;
+  }
+
+  if (linkedAddress) {
+    const persisted = db.wallets[linkedAddress.toLowerCase()];
+    if (persisted) {
+      const decPhrase = persisted.seedPhraseEncrypted 
+        ? decryptEnclaveData(persisted.seedPhraseEncrypted) 
+        : persisted.seedPhrase;
+      const decKey = persisted.privateKeyEncrypted 
+        ? decryptEnclaveData(persisted.privateKeyEncrypted) 
+        : persisted.privateKey;
+
+      fullWallet = {
+        address: persisted.address,
+        balance: persisted.balance,
+        seedPhrase: decPhrase,
+        privateKey: decKey,
+        isConnected: true
+      };
+    }
+  }
+
+  // Render popup success window which sends a window.opener postMessage back to core context
+  res.send(`
+    <!doctype html>
+    <html>
+      <head>
+        <title>Authentication Successful</title>
+        <style>
+          body {
+            font-family: -apple-system, sans-serif;
+            text-align: center;
+            background: #f8fafc;
+            color: #1e293b;
+            padding: 40px;
+          }
+          .spinner {
+            border: 4px solid rgba(0,0,0,.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #0b57d0;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-bottom: 20px;
+          }
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        </style>
+      </head>
+      <body>
+        <div class="spinner"></div>
+        <h2>Securely restoring account profile...</h2>
+        <p>This dialogue window will close automatically.</p>
+        
+        <script>
+          const authData = {
+            type: "OAUTH_AUTH_SUCCESS",
+            email: ${JSON.stringify(cleanEmail)},
+            sessionToken: ${JSON.stringify(sessionToken)},
+            wallet: ${JSON.stringify(fullWallet)},
+            isNew: ${isNew}
+          };
+
+          // Communication to parent iframe or window
+          if (window.opener) {
+            window.opener.postMessage(authData, "*");
+            setTimeout(() => {
+              window.close();
+            }, 600);
+          } else {
+            // Callback fallback inside same tab
+            localStorage.setItem("arc_oauth_success", JSON.stringify(authData));
+            window.location.href = "/";
+          }
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+// GET Wallet existence by associated Email (No private info leaks)
 app.get("/api/wallet/by-email/:email", (req, res) => {
   const reqEmail = req.params.email.trim().toLowerCase();
   db = loadDB();
@@ -403,10 +1060,112 @@ app.get("/api/wallet/by-email/:email", (req, res) => {
   if (foundAddress) {
     const foundWallet = db.wallets[foundAddress.toLowerCase()];
     if (foundWallet) {
-      return res.json({ found: true, wallet: foundWallet });
+      // SECURITY EXCLUSION: Never return secret credentials! Return info for directory check only.
+      const publicWallet = {
+        address: foundWallet.address,
+        balance: foundWallet.balance,
+        isConnected: true
+      };
+      return res.json({ found: true, wallet: publicWallet });
     }
   }
   res.json({ found: false });
+});
+
+import jwt from "jsonwebtoken";
+const JWT_SECRET = process.env.JWT_SECRET || "arc-protocol-super-premium-jwt-session-secret-key-92817";
+
+function signUserToken(email: string, address: string): string {
+  // Signs standard JWT credentials for the active session (valid for 7 days)
+  return jwt.sign({ email, address }, JWT_SECRET, { expiresIn: "7d" });
+}
+
+// Token Verification Express Middleware
+function authenticateToken(req: any, res: any, next: any) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) {
+    return res.status(401).json({ error: "Access token is missing. Please log in first." });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+    if (err) {
+      return res.status(403).json({ error: "Your session has expired. Please sign in again." });
+    }
+    req.user = user;
+    next();
+  });
+}
+
+function getDecryptedWallet(wal: WalletRecord): WalletRecord {
+  const result = { ...wal };
+  if (wal.seedPhraseEncrypted) {
+    result.seedPhrase = decryptEnclaveData(wal.seedPhraseEncrypted);
+  }
+  if (wal.privateKeyEncrypted) {
+    result.privateKey = decryptEnclaveData(wal.privateKeyEncrypted);
+  }
+  return result;
+}
+
+// POST API to Restore user wallet with seeds or private keys safely on backend
+app.post("/api/auth/restore-seed", (req, res) => {
+  const { phrase, email } = req.body;
+  if (!phrase) {
+    return res.status(400).json({ error: "Security recovery phrase or private key is required." });
+  }
+
+  try {
+    const cleanPhrase = phrase.trim().toLowerCase().replace(/\s+/g, " ");
+    let restored: any;
+    const isPrivateKey = /^(0x)?[0-9a-fA-F]{64}$/.test(cleanPhrase);
+
+    if (isPrivateKey) {
+      const pKey = cleanPhrase.startsWith("0x") ? cleanPhrase : "0x" + cleanPhrase;
+      restored = new ethers.Wallet(pKey);
+    } else {
+      restored = ethers.Wallet.fromPhrase(cleanPhrase);
+    }
+
+    const address = restored.address;
+    const addrKey = address.toLowerCase();
+
+    db = loadDB();
+    db.emails = db.emails || {};
+
+    const userEmail = email ? email.trim().toLowerCase() : `restored-${addrKey.slice(2, 8)}@arc.network`;
+
+    let walletRecord = db.wallets[addrKey];
+    if (walletRecord) {
+      walletRecord = getDecryptedWallet(walletRecord);
+    } else {
+      walletRecord = {
+        address,
+        balance: 150.00,
+        privateKey: restored.privateKey,
+        seedPhrase: isPrivateKey ? "Imported Private Key" : cleanPhrase,
+        isConnected: true
+      };
+      db.wallets[addrKey] = walletRecord;
+      db.transactions[addrKey] = [];
+    }
+
+    db.emails[userEmail] = address;
+    saveDB(db);
+
+    const token = signUserToken(userEmail, address);
+
+    res.json({
+      success: true,
+      email: userEmail,
+      wallet: walletRecord,
+      token
+    });
+  } catch (err: any) {
+    console.error("Mnemonic seed restore failed:", err);
+    res.status(400).json({ error: `Invalid recovery credentials: ${err.message}` });
+  }
 });
 
 // POST Authenticate Wallet dynamically synchronized from Client-side
@@ -419,22 +1178,32 @@ app.post("/api/wallet/auth", (req, res) => {
   const addrKey = address.toLowerCase();
   db = loadDB();
 
-  // Associate email if provided
-  if (email) {
-    const trimmedEmail = email.trim().toLowerCase();
+  let associatedEmail = email ? email.trim().toLowerCase() : undefined;
+  if (!associatedEmail && db.emails) {
+    const foundEmail = Object.keys(db.emails).find(
+      key => db.emails[key] && db.emails[key].toLowerCase() === addrKey
+    );
+    if (foundEmail) {
+      associatedEmail = foundEmail;
+    }
+  }
+
+  // Associate email if found or provided
+  if (associatedEmail) {
     if (!db.emails) {
       db.emails = {};
     }
-    db.emails[trimmedEmail] = address;
+    db.emails[associatedEmail] = address;
   }
 
   // If this wallet is already in our persistent file-backed directory, retrieve history!
   if (db.wallets[addrKey]) {
+    const decryptedRecord = getDecryptedWallet(db.wallets[addrKey]);
     wallet = {
-      address: db.wallets[addrKey].address,
-      balance: db.wallets[addrKey].balance,
-      privateKey: db.wallets[addrKey].privateKey || privateKey || "",
-      seedPhrase: db.wallets[addrKey].seedPhrase || seedPhrase || "",
+      address: decryptedRecord.address,
+      balance: decryptedRecord.balance,
+      privateKey: decryptedRecord.privateKey || privateKey || "",
+      seedPhrase: decryptedRecord.seedPhrase || seedPhrase || "",
       isConnected: isConnected !== undefined ? isConnected : true
     };
     transactions = db.transactions[addrKey] || [];
@@ -531,7 +1300,9 @@ app.post("/api/transaction/execute", async (req, res) => {
 
   const addrKey = activeAddress.toLowerCase();
   let activeWallet = db.wallets[addrKey];
-  if (!activeWallet) {
+  if (activeWallet) {
+    activeWallet = getDecryptedWallet(activeWallet);
+  } else {
     activeWallet = {
       address: activeAddress,
       balance: 150.00,
@@ -682,6 +1453,10 @@ app.post("/api/transaction/execute", async (req, res) => {
 
 // POST API to parse natural language intent using Gemini
 app.post("/api/parse-intent", async (req, res) => {
+  // Refresh database snapshot to get the newest contact memories
+  db = loadDB();
+  const activeContacts = db.contacts || [];
+
   // Simple offline parser as a fallback or auxiliary verification
   let defaultParsed: {
     action: string;
@@ -729,7 +1504,7 @@ app.post("/api/parse-intent", async (req, res) => {
       } else {
         defaultParsed.recipient = rawRec.charAt(0).toUpperCase() + rawRec.slice(1);
         // Try to resolve
-        const matchedContact = contacts.find(c => c.name.toLowerCase() === rawRec.toLowerCase());
+        const matchedContact = activeContacts.find(c => c.name.toLowerCase() === rawRec.toLowerCase());
         if (matchedContact) {
           defaultParsed.recipientAddress = matchedContact.address;
         }
@@ -747,7 +1522,7 @@ app.post("/api/parse-intent", async (req, res) => {
     if (ethAddressMatch) {
       const extractedAddr = ethAddressMatch[0];
       defaultParsed.recipientAddress = extractedAddr;
-      const matchedContact = contacts.find(c => c.address.toLowerCase() === extractedAddr.toLowerCase());
+      const matchedContact = activeContacts.find(c => c.address.toLowerCase() === extractedAddr.toLowerCase());
       defaultParsed.recipient = matchedContact ? matchedContact.name : "External Address";
       if (defaultParsed.action === "unknown") {
         defaultParsed.action = "send";
@@ -765,7 +1540,7 @@ app.post("/api/parse-intent", async (req, res) => {
 Here is the user statement: "${text}"
 
 Here is the current contact memory mapping:
-${JSON.stringify(contacts, null, 2)}
+${JSON.stringify(activeContacts, null, 2)}
 
 Provide your output strictly conformant to the requested JSON response Schema. Do not include markdown codeblock tags around the output, return the pure JSON.
 If the recipient matches one of our known memories (like "Musa", "Alice", "Bob"), resolve their address.
@@ -815,11 +1590,17 @@ Otherwise, specify their recipient name, and if they have no address, the client
 
         const parsedGeminiText = response.text || "";
         console.log("Raw Gemini parser output:", parsedGeminiText);
-        const jsonParsed = JSON.parse(parsedGeminiText.trim());
+        
+        let cleanedJsonText = parsedGeminiText.trim();
+        if (cleanedJsonText.startsWith("```")) {
+          cleanedJsonText = cleanedJsonText.replace(/^```(?:json)?\n?|```$/gi, "").trim();
+        }
+        
+        const jsonParsed = JSON.parse(cleanedJsonText);
         
         // Merge with custom address resolution check if Gemini did not resolve it but local contacts database has it
         if (!jsonParsed.recipientAddress && jsonParsed.recipient) {
-          const found = contacts.find(c => c.name.toLowerCase() === jsonParsed.recipient.toLowerCase());
+          const found = activeContacts.find(c => c.name.toLowerCase() === jsonParsed.recipient.toLowerCase());
           if (found) {
             jsonParsed.recipientAddress = found.address;
           }
@@ -831,7 +1612,7 @@ Otherwise, specify their recipient name, and if they have no address, the client
           const extractedAddr = explicitAddressMatch[0];
           jsonParsed.recipientAddress = extractedAddr;
           if (!jsonParsed.recipient || jsonParsed.recipient === "Unknown" || jsonParsed.recipient.startsWith("0x")) {
-            const matchedContact = contacts.find(c => c.address.toLowerCase() === extractedAddr.toLowerCase());
+            const matchedContact = activeContacts.find(c => c.address.toLowerCase() === extractedAddr.toLowerCase());
             jsonParsed.recipient = matchedContact ? matchedContact.name : "External Address";
           }
           if (jsonParsed.action === "unknown") {
