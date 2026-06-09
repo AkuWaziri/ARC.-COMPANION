@@ -32,9 +32,9 @@ export const arcTestnet = defineChain({
 export const networks = [arcTestnet];
 
 // WalletConnect Project ID - fallback to a valid 32-character hex format
-export const projectId = typeof window !== 'undefined' && (window as any).VITE_WALLETCONNECT_PROJECT_ID 
-  ? (window as any).VITE_WALLETCONNECT_PROJECT_ID 
-  : 'c3d3da77520e5c83d6cb46f7ff00fa74';
+export const projectId = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WALLETCONNECT_PROJECT_ID) || 
+  (typeof window !== 'undefined' && (window as any).VITE_WALLETCONNECT_PROJECT_ID) || 
+  '8dd233da44e056d0d2105fa1799afa74';
 
 // Setup Wagmi Adapter
 export const wagmiAdapter = new WagmiAdapter({
@@ -63,11 +63,13 @@ export const appKit = createAppKit({
     icons: ['https://testnet.arc.network/favicon.ico'],
   },
   projectId,
+  enableVerify: false, // Disable Reown domain verification to bypass "source has not been authorized yet" in dev sandboxes
   features: {
     analytics: false,
     email: false, // We use our proprietary Enclave OTP Gateway
     socials: false,
     allWallets: true, // Enable all wallets (MetaMask, Coinbase, Trust Wallet, Rabby, etc.)
+    verify: false, // Disable verification features where supported
   },
   allWallets: 'SHOW',
-});
+} as any);

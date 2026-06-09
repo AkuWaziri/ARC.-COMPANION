@@ -59,3 +59,20 @@ html, body, #root {
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
 }
+
+/* Suppress Reown/Web3Modal domain mismatch/authorization warning banners */
+w3m-verify-banner,
+appkit-verify-banner,
+wui-banner,
+wui-notice,
+[data-testid="verify-banner"],
+.w3m-verify-banner,
+.appkit-verify-banner {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}

@@ -34,7 +34,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children, triggerBeep, onL
   // State 1: Unauthenticated -> show ONLY login/signup screen.
   if (!isAuthenticated) {
     return (
-      <div className="relative min-h-[100dvh] w-full bg-slate-100 flex items-center justify-center">
+      <div className="relative h-screen max-h-screen min-h-[100dvh] w-full bg-slate-100 flex flex-col items-center justify-start overflow-y-auto no-scrollbar p-1 sm:p-4">
         <EmailAuthModal 
           onLoginSuccess={onLoginSuccess}
           triggerBeep={triggerBeep}
@@ -47,7 +47,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children, triggerBeep, onL
   // State 2: Authenticated but no wallet -> show ONLY wallet connection/creation/selection screen. Block everything else.
   if (!isWalletConnected) {
     return (
-      <div className="relative min-h-[100dvh] w-full bg-slate-100 flex items-center justify-center">
+      <div className="relative h-screen max-h-screen min-h-[100dvh] w-full bg-slate-100 flex flex-col items-center justify-start overflow-y-auto no-scrollbar p-1 sm:p-4">
         <EmailAuthModal 
           onLoginSuccess={onLoginSuccess}
           triggerBeep={triggerBeep}

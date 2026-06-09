@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { Wallet, Landmark, RefreshCw, Key, Copy, Check, ShieldAlert, Award } from "lucide-react";
+import { Wallet, Landmark, RefreshCw, Key, Copy, Check, ShieldAlert, Award, ExternalLink } from "lucide-react";
 import { WalletState } from "../types";
+import { useAuth } from "../context/AuthContext";
 
 interface WalletCardProps {
   wallet: WalletState;
@@ -10,6 +11,7 @@ interface WalletCardProps {
 }
 
 export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 'simulated' }: WalletCardProps) {
+  const { isWalletConnected, web3Address, web3ChainId, web3NetworkName, web3ProviderName, isExternal } = useAuth();
   const [copied, setCopied] = useState(false);
   const [showSeed, setShowSeed] = useState(false);
   const [loadingFaucet, setLoadingFaucet] = useState(false);
@@ -86,15 +88,29 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
             </div>
 
             {/* USDC Balance Panel */}
-            <div className="p-4 rounded-xl bg-slate-100 border border-slate-300 text-left">
-              <div className="text-[9px] uppercase font-mono tracking-widest text-slate-450 font-bold">ARC COMPLIANT BAL</div>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-3xl font-bold font-display text-slate-950 tracking-tight">
-                  ${wallet.balance.toFixed(2)}
-                </span>
-                <span className="text-[9px] font-mono font-bold text-slate-700 bg-slate-200/90 px-2 py-0.5 rounded border border-slate-300/40">
-                  USDC
-                </span>
+            <div className="space-y-2">
+              <div className="p-3.5 rounded-xl bg-slate-100 border border-slate-300 text-left">
+                <div className="text-[9px] uppercase font-mono tracking-widest text-slate-450 font-bold">ARC GAS BALANCE</div>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-2xl font-bold font-display text-slate-950 tracking-tight">
+                    ${wallet.balance.toFixed(4)}
+                  </span>
+                  <span className="text-[9px] font-mono font-bold text-slate-700 bg-slate-200/90 px-2 py-0.5 rounded border border-slate-300/40">
+                    USDC (Native)
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-emerald-50/50 border border-emerald-250 text-left">
+                <div className="text-[9px] uppercase font-mono tracking-widest text-emerald-650 font-bold">ARC TESTNET USDC BALANCE</div>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-2xl font-bold font-display text-emerald-900 tracking-tight">
+                    ${wallet.balance.toFixed(4)}
+                  </span>
+                  <span className="text-[9px] font-mono font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200/40">
+                    USDC (ERC-20 Format)
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -103,13 +119,13 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
             {/* Trigger Faucet Button */}
             {networkMode === "live" ? (
               <a
-                href="https://faucet.testnet.arc.network/"
+                href="https://faucet.circle.com/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium font-sans text-xs rounded-lg transition-all duration-150 active:scale-[0.99] shadow-xs cursor-pointer text-center select-none"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-                <span className="font-bold">Claim Arc Testnet Faucet Gas / USDC ⚡</span>
+                <span className="font-bold">CLAIM TESTNET GAS/USDC ⚡</span>
               </a>
             ) : (
               <button
@@ -125,12 +141,37 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
             {/* Note about secure environment */}
             <div className="p-2.5 bg-blue-50 border border-blue-200 text-blue-800 text-[10px] rounded-lg font-sans leading-relaxed text-left space-y-1.5">
               <div>
-                <strong>Official Arc Testnet Faucet:</strong> Click copy on your <strong>Address</strong> above, then visit the official <a href="https://faucet.testnet.arc.network/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold">Arc Testnet Faucet</a> to receive native gas/test assets!
+                <strong>Official Circle Faucet:</strong> Click copy on your <strong>Address</strong> above, then visit the official <a href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold">Circle USDC Faucet</a> to receive testnet gas & USDC assets!
               </div>
-              <div className="flex items-center gap-1 text-[9px] text-slate-500 font-mono pt-1 border-t border-blue-105">
-                <Award className="w-3 h-3 text-slate-500" />
-                <span>Arc Secure Enclave Cryptography Connected</span>
+            </div>
+
+            {/* EVM Provider Diagnostics Panel */}
+            <div className="p-3 bg-slate-100 border border-slate-300 rounded-xl space-y-2 text-left text-[10px] font-mono leading-normal shadow-3xs">
+              <div className="text-[9px] uppercase font-bold tracking-wider text-slate-500 border-b border-slate-200 pb-1 flex items-center justify-between">
+                <span>EVM Provider Diagnostics</span>
+                <span className={`px-1.5 py-0.2 rounded-full font-bold text-[8px] uppercase ${isWalletConnected ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+                  {isWalletConnected ? "CONFIRMED" : "DISCONNECTED"}
+                </span>
               </div>
+              <div className="grid grid-cols-2 gap-y-1.5 gap-x-2 text-[9px] text-slate-600">
+                <div>Provider Name:</div>
+                <div className="font-bold text-slate-900 text-right truncate">{web3ProviderName || "None detected"}</div>
+
+                <div>Active Account:</div>
+                <div className="font-bold text-slate-900 text-right truncate select-all">{web3Address ? `${web3Address.slice(0, 8)}...${web3Address.slice(-6)}` : "None"}</div>
+
+                <div>Chain ID:</div>
+                <div className="font-bold text-slate-900 text-right">{web3ChainId ? `${web3ChainId} (0x${web3ChainId.toString(16)})` : "None"}</div>
+
+                <div>Network Target:</div>
+                <div className="font-bold text-slate-900 text-right">{web3NetworkName || "N/A"}</div>
+              </div>
+
+              {isExternal && !isWalletConnected && (
+                <div className="pt-1.5 border-t border-slate-200 text-[8.5px] text-rose-600 font-sans font-bold leading-tight">
+                  ⚠️ Connection is inactive or mismatched in your wallet application. Please verify that your MetaMask/Rabby is connected to Arc Testnet (5042002).
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -149,11 +190,20 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
                 </span>
                 <button
                   onClick={copyAddress}
-                  className="p-1 rounded text-slate-500 hover:text-slate-950 hover:bg-white border border-slate-2.5 transition"
+                  className="p-1 rounded text-slate-500 hover:text-slate-950 hover:bg-white border border-slate-205 transition"
                   title="Copy Address"
                 >
                   {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
                 </button>
+                <a
+                  href={`https://testnet.arcscan.app/address/${wallet.address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-white border border-slate-205 transition flex items-center justify-center"
+                  title="View Address on Arcscan"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                </a>
               </div>
             </div>
 

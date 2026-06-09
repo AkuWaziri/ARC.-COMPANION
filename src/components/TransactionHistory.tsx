@@ -34,9 +34,9 @@ export default function TransactionHistory({ transactions, onRefresh }: Transact
     .reduce((sum, tx) => sum + tx.amount, 0);
 
   return (
-    <div id="tx-history-panel" className="bg-white border border-slate-300 rounded-xl p-6 shadow-xs relative overflow-hidden text-slate-900 flex flex-col h-full min-h-[400px]">
+    <div id="tx-history-panel" className="relative p-3.5 sm:p-5 text-slate-900 flex flex-col h-full min-h-0 w-full">
       {/* Accent border at the top of the card */}
-      <div className="absolute top-0 left-0 right-0 h-[3px] bg-slate-900" />
+      <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-slate-900" />
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
@@ -109,8 +109,8 @@ export default function TransactionHistory({ transactions, onRefresh }: Transact
         ) : (
           <>
             {/* Desktop Table View */}
-            <div className="hidden md:block w-full">
-              <table className="w-full text-left border-collapse">
+            <div className="hidden md:block w-full overflow-x-auto no-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[650px]">
                 <thead>
                   <tr className="border-b border-slate-200 text-[9px] font-mono uppercase tracking-widest text-slate-450">
                     <th className="pb-2 font-bold">Recipient</th>

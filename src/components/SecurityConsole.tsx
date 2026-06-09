@@ -59,7 +59,9 @@ export default function SecurityConsole({ securityConfig, onToggleBiometrics, en
   };
 
   return (
-    <div id="security-shield-console" className="bg-white border border-slate-300 rounded-xl p-6 shadow-xs relative overflow-hidden h-full flex flex-col justify-between text-slate-900">
+    <div id="security-shield-console" className="relative p-3.5 sm:p-5 text-slate-900 flex flex-col h-full min-h-0 w-full justify-between">
+      {/* Accent border at the top of the card */}
+      <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-slate-900" />
       <div className="flex-1 flex flex-col min-h-0 space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between shrink-0">

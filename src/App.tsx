@@ -40,7 +40,18 @@ import robotAvatar from "./assets/images/friendly_bot_logo_1780649113441.png";
 import { Message, WalletState, Contact, Transaction, SecurityConfig } from "./types";
 
 export default function App() {
-  const { wallet: contextWallet, connectWallet, logout } = useAuth();
+  const { 
+    wallet: contextWallet, 
+    connectWallet, 
+    logout, 
+    isWalletConnected: contextIsWalletConnected,
+    web3Address,
+    web3ChainId,
+    web3NetworkName,
+    web3ProviderName,
+    web3IsConnected,
+    isExternal
+  } = useAuth();
 
   const [wallet, setWallet] = useState<WalletState>(() => {
     if (typeof window !== "undefined") {
@@ -119,6 +130,7 @@ export default function App() {
 
   const [biometricSigningInProgress, setBiometricSigningInProgress] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const userIsAtBottomRef = useRef<boolean>(true);
 
   const [scrolled, setScrolled] = useState(false);
   const [showHeader, setShowHeader] = useState(true);
@@ -301,18 +313,24 @@ export default function App() {
 
   // Synchronize wallet state and fetch related parameters when context wallet settles
   useEffect(() => {
-    if (contextWallet && contextWallet.isConnected) {
+    if (contextWallet) {
       setWallet(contextWallet);
-      fetchWallet(contextWallet.address);
-      fetchContacts();
-      fetchTransactions(contextWallet.address);
-      addSecurityLog(`Authentication credentials verified. Initialized session at Address: ${contextWallet.address.slice(0, 10)}...`);
+      if (contextWallet.address) {
+        fetchWallet(contextWallet.address);
+        fetchContacts();
+        fetchTransactions(contextWallet.address);
+        addSecurityLog(`Authentication credentials verified. Initialized session at Address: ${contextWallet.address.slice(0, 10)}...`);
+      }
     }
   }, [contextWallet]);
 
   // Scroll chat
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const lastMessage = messages[messages.length - 1];
+    const lastIsUser = lastMessage?.sender === "user";
+    if (userIsAtBottomRef.current || lastIsUser) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, isProcessing]);
 
   // Utility to write down logs
@@ -917,24 +935,18 @@ export default function App() {
       triggerBeep={triggerSynthBeep} 
       onLoginSuccess={handleLoginSuccess}
     >
-      <div id="ai-money-agent-app" className="h-[100dvh] max-h-[100dvh] md:h-screen md:max-h-screen overflow-hidden bg-slate-200 text-slate-900 flex flex-col font-sans selection:bg-slate-300 selection:text-slate-900">
+      <div id="ai-money-agent-app" className="h-screen max-h-screen w-full overflow-hidden bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-slate-300 selection:text-slate-900">
       
       {/* Top Floating Header Rail */}
-      <div className={`shrink-0 sticky top-0 z-50 w-full px-2 pt-2 sm:px-6 sm:pt-4 transition-all duration-300 ease-in-out ${
-        showHeader ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0 pointer-events-none"
-      }`}>
+      <div className="shrink-0 sticky top-0 z-50 w-full px-2 pt-1.5 sm:px-4 sm:pt-2 transition-all duration-300">
         <motion.header 
           id="agent-main-header" 
-          className={`mx-auto max-w-7xl transition-all duration-300 flex items-center justify-between rounded-xl sm:rounded-2xl border relative overflow-hidden ${
-            scrolled 
-              ? "bg-white/95 backdrop-blur-md px-3 py-1.5 sm:px-6 sm:py-2.5 border-slate-300 shadow-md" 
-              : "bg-white px-3 py-2 sm:px-6 sm:py-4 border-slate-300 shadow-sm"
-          }`}
+          className="mx-auto max-w-7xl transition-all duration-300 flex items-center justify-between rounded-lg sm:rounded-xl border relative overflow-hidden bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 border-slate-300 shadow-xs"
           layout
         >
-        <div className="flex items-center gap-1.5 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2.5">
           <div className="relative">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl overflow-hidden bg-slate-950 flex items-center justify-center shadow-md border border-slate-350 hover:scale-[1.03] transition-transform duration-300">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg overflow-hidden bg-slate-950 flex items-center justify-center shadow-xs border border-slate-300 hover:scale-[1.02] transition-transform duration-250">
               <img 
                 src={robotAvatar} 
                 alt="Arc Companion Logo" 
@@ -945,39 +957,61 @@ export default function App() {
           </div>
 
           <div className="text-left">
-            <h1 className="text-[11px] sm:text-xs font-bold font-display tracking-wider text-slate-900 uppercase">ARC COMPANION</h1>
-            <p className="hidden sm:flex text-[8.5px] font-mono text-slate-500 lowercase tracking-wider items-center gap-1.5 mt-0.5">
+            <h1 className="text-[10px] sm:text-xs font-bold font-display tracking-wider text-slate-900 uppercase">ARC COMPANION</h1>
+            <p className="hidden sm:flex text-[8px] font-mono text-slate-500 lowercase tracking-wider items-center gap-1 mt-0.5">
               <span>arc. native. wallet. finance.</span>
             </p>
           </div>
         </div>
 
         {/* Diagnostic Status indicators showing Live Flow & Sign Out Option */}
-        <div id="header-right-controls" className="flex items-center gap-1.5 sm:gap-2.5">
+        <div id="header-right-controls" className="flex items-center gap-1.5 sm:gap-2">
           {/* Locked Live ARC Testnet badge */}
-          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg py-1 px-2 flex sm:px-2.5 items-center gap-1.5 select-none text-[8.5px] sm:text-[10px] font-mono uppercase font-bold">
+          <div className="hidden md:flex bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg py-0.5 px-2 items-center gap-1 select-none text-[8.5px] font-mono uppercase font-bold">
             <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping shrink-0" />
-            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full shrink-0 -ml-3" />
+            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full shrink-0 -ml-2.5" />
             <span>Arc Testnet Live</span>
           </div>
 
-          <div className="hidden sm:flex items-center gap-2.5 text-[9px] font-mono uppercase">
-            <div className="bg-slate-200 border border-slate-350 rounded px-2.5 py-1 flex items-center gap-1.5 text-slate-700 select-none hover:border-slate-500 transition-colors">
-              <motion.span 
-                className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"
-              />
-              <span className="text-slate-500">Gas:</span>
-              <span className="text-blue-600 font-bold font-mono">{gwei} GWEI</span>
-            </div>
+          {/* Dynamic Wallet Status Diagnostic Panel */}
+          <div className="flex items-center">
+            {isExternal ? (
+              contextIsWalletConnected ? (
+                <div className="flex items-center gap-1 sm:gap-1.5 bg-emerald-50 border border-emerald-250 text-emerald-800 rounded-lg px-2 py-0.5 text-[8.5px] sm:text-[9.5px] font-mono leading-tight whitespace-nowrap shadow-3xs">
+                  <span className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
+                  <span className="font-bold hidden sm:inline">{web3ProviderName || "Wallet"}:</span>
+                  <span className="font-semibold select-all text-slate-800">{web3Address ? `${web3Address.slice(0, 5)}...${web3Address.slice(-4)}` : "None"}</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 bg-rose-50 border border-rose-300 text-rose-700 rounded-lg px-2 py-0.5 text-[8.5px] sm:text-[9.5px] font-mono font-bold leading-tight shadow-3xs">
+                  <span className="w-1 h-1 bg-rose-500 rounded-full animate-ping" />
+                  <span>Wallet Not Connected</span>
+                </div>
+              )
+            ) : (
+              // Embedded local HSM mode
+              wallet && wallet.isConnected ? (
+                <div className="flex items-center gap-1 sm:gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-2 py-0.5 text-[8.5px] sm:text-[9.5px] font-mono leading-tight whitespace-nowrap shadow-3xs text-blue-800">
+                  <span className="w-1 h-1 bg-blue-500 rounded-full animate-pulse" />
+                  <span className="font-bold hidden sm:inline">Enclave:</span>
+                  <span className="font-semibold select-all text-slate-800">{wallet.address ? `${wallet.address.slice(0, 5)}...${wallet.address.slice(-4)}` : "None"}</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 bg-rose-50 border border-rose-300 text-rose-700 rounded-lg px-2 py-0.5 text-[8.5px] sm:text-[9.5px] font-mono font-bold leading-tight shadow-3xs">
+                  <span className="w-1 h-1 bg-rose-500 rounded-full animate-ping" />
+                  <span>Disconnected</span>
+                </div>
+              )
+            )}
           </div>
 
           {wallet.isConnected && (
             <button
               onClick={handleLogOut}
-              className="px-2 py-1 sm:px-3 sm:py-1.5 bg-slate-200 hover:bg-rose-50 border border-slate-355 hover:border-rose-200 text-slate-700 hover:text-rose-600 rounded-xl text-[10px] font-mono uppercase tracking-wider font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              className="px-2 py-1 bg-slate-200 hover:bg-rose-50 border border-slate-355 hover:border-rose-200 text-slate-700 hover:text-rose-600 rounded-lg text-[9px] font-mono uppercase tracking-wider font-bold transition flex items-center gap-1 cursor-pointer shadow-3xs"
               title="Secure Logout Session"
             >
-              <LogOut className="w-3.5 h-3.5" />
+              <LogOut className="w-3 h-3" />
               <span className="hidden md:inline">Sign Out</span>
             </button>
           )}
@@ -995,8 +1029,8 @@ export default function App() {
       </div>
 
       {/* Dynamic Navigation Tabs System */}
-      <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 mt-1.5 sm:mt-2.5 shrink-0">
-        <div id="enclave-tabs-bar" className="grid grid-cols-5 items-stretch bg-white border border-slate-300 p-0.5 sm:p-1 rounded-lg sm:rounded-xl shadow-xs gap-0.5 sm:gap-1.5 select-none w-full">
+      <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 mt-1 sm:mt-1.5 shrink-0">
+        <div id="enclave-tabs-bar" className="grid grid-cols-5 items-stretch bg-white border border-slate-300 p-0.5 rounded-lg shadow-3xs gap-0.5 sm:gap-1 select-none w-full">
           {[
             { id: 'chat' as const, label: 'Chat', icon: Bot },
             { id: 'wallet' as const, label: 'Wallet', icon: Wallet },
@@ -1013,7 +1047,7 @@ export default function App() {
                   setActiveTab(tab.id);
                   triggerSynthBeep(450 + (idx * 35), 550 + (idx * 35), "neutral");
                 }}
-                className={`py-2 px-0.5 sm:py-2.5 sm:px-3 text-xs font-bold font-sans transition-all duration-200 cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 relative w-full text-center ${
+                className={`py-1.5 px-0.5 sm:py-2 sm:px-2.5 text-xs font-bold font-sans transition-all duration-200 cursor-pointer flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 relative w-full text-center ${
                   isActive
                     ? "text-white font-bold"
                     : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
@@ -1022,12 +1056,12 @@ export default function App() {
                 {isActive && (
                   <motion.div
                     layoutId="activeTabOutline"
-                    className="absolute inset-0 bg-slate-900 rounded-md sm:rounded-lg -z-10"
+                    className="absolute inset-0 bg-slate-900 rounded-md -z-10"
                     transition={{ type: "spring", stiffness: 400, damping: 33 }}
                   />
                 )}
-                <Icon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 transition-all ${isActive ? "text-blue-400 scale-105" : "text-slate-450"}`} />
-                <span className="text-[8px] xs:text-[9.5px] sm:text-[10.5px] tracking-tight uppercase font-bold whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
+                <Icon className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 transition-all ${isActive ? "text-blue-400 scale-105" : "text-slate-450"}`} />
+                <span className="text-[7.5px] xs:text-[8.5px] sm:text-[10px] tracking-tight uppercase font-bold whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
                   {tab.label}
                 </span>
               </button>
@@ -1037,7 +1071,7 @@ export default function App() {
       </div>
 
       {/* Main Container */}
-      <main className="flex-1 w-full max-w-7xl mx-auto px-2 sm:px-4 py-1.5 sm:py-2.5 flex flex-col items-center justify-start overflow-hidden min-h-0">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-2 sm:px-4 py-1.5 sm:py-2 flex flex-col items-center justify-start overflow-hidden min-h-0">
         <div className="w-full max-w-6xl flex-1 flex flex-col overflow-hidden min-h-0">
           <AnimatePresence mode="wait">
             <motion.div
@@ -1065,7 +1099,14 @@ export default function App() {
                   </div>
 
                   {/* Messages Stream Wrapper */}
-                  <div className="flex-1 overflow-y-auto p-2 py-1.5 space-y-1.5 no-scrollbar">
+                  <div 
+                    className="flex-1 overflow-y-auto p-2 py-1.5 space-y-2 no-scrollbar"
+                    onScroll={(e) => {
+                      const target = e.currentTarget;
+                      const isAtBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 50;
+                      userIsAtBottomRef.current = isAtBottom;
+                    }}
+                  >
                     {messages.map((msg) => {
                       const isUser = msg.sender === "user";
                       return (
@@ -1073,7 +1114,7 @@ export default function App() {
                           key={msg.id} 
                           className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                         >
-                          <div className={`max-w-[90%] flex gap-1.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+                          <div className={`max-w-[85%] sm:max-w-[75%] flex gap-1.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
                             
                             {/* Speaker icon */}
                             <div className={`w-5 h-5 rounded overflow-hidden flex items-center justify-center shrink-0 border text-[8px] uppercase font-mono ${
@@ -1093,73 +1134,89 @@ export default function App() {
                               )}
                             </div>
 
-                            {/* Speech box bubble */}
-                            <div className="text-left flex flex-col items-start max-w-full">
-                              <div className={`py-1.5 px-3 rounded-xl text-xs leading-normal relative w-full transition-all duration-300 ${
+                            {/* Speech box bubble wrapper */}
+                            <div className={`flex flex-col ${isUser ? "items-end text-right" : "items-start text-left"} max-w-full min-w-0`}>
+                              
+                              {/* Metadata Line */}
+                              <div className={`flex items-center gap-1 mb-0.5 text-[8px] sm:text-[9.5px] font-mono text-slate-400 select-none leading-none ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+                                <span className={`font-bold uppercase tracking-wider ${isUser ? "text-blue-600" : "text-slate-650"}`}>
+                                  {isUser ? "You" : "Arc Agent"}
+                                </span>
+                                <span>•</span>
+                                <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                {isUser && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-emerald-600 font-semibold flex items-center gap-0.5">
+                                      <Check className="w-2.5 h-2.5" /> Sent
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+
+                              {/* Speech box bubble */}
+                              <div className={`py-1 px-2.5 rounded-lg sm:rounded-xl text-xs leading-normal relative w-fit max-w-[100%] transition-all duration-300 ${
                                 msg.status === "completed"
-                                  ? "bg-emerald-50 text-emerald-950 border-2 border-emerald-400/70 rounded-tl-none shadow-xs"
+                                  ? "bg-emerald-50 text-emerald-950 border border-emerald-300 rounded-tl-none shadow-3xs"
                                   : isUser 
-                                    ? "bg-slate-250 text-slate-950 border border-slate-400 rounded-tr-none shadow-3xs" 
-                                    : "bg-slate-100 text-slate-900 border border-slate-300 rounded-tl-none font-sans"
+                                    ? "bg-slate-200/90 text-slate-950 border border-slate-350 rounded-tr-none shadow-3xs" 
+                                    : "bg-slate-100 text-slate-900 border border-slate-250 rounded-tl-none font-sans"
                               }`}>
                                 <div className="flex flex-col">
-                                  <div className="text-[11px] leading-normal break-words">{msg.text}</div>
-                                  <div className="text-right text-[7.5px] font-mono text-slate-400 select-none uppercase tracking-wider mt-0.5 leading-none">
-                                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </div>
+                                  <div className="text-[11px] sm:text-xs leading-normal break-words">{msg.text}</div>
                                 </div>
 
                                 {/* Interactive UI Draft Transaction Confirm Card inline */}
                                 {msg.transaction && msg.status === "confirming" && (
-                                  <div className="mt-2 p-2.5 rounded-lg bg-white border border-slate-300 text-slate-900 space-y-2 font-sans">
-                                    <div className="flex items-center justify-between border-b border-slate-200 pb-1 flex-wrap gap-1.5">
+                                  <div className="mt-1.5 p-2 rounded-lg bg-white border border-slate-300 text-slate-900 space-y-1.5 font-sans w-64 max-w-sm sm:w-80">
+                                    <div className="flex items-center justify-between border-b border-slate-200 pb-1 flex-wrap gap-1">
                                       <span className="text-[9px] font-bold font-sans text-slate-900 uppercase tracking-wider flex items-center gap-1">
-                                        <AlertTriangle className="w-3 h-3 text-amber-600" /> Confirm payment request
+                                        <AlertTriangle className="w-3 h-3 text-amber-600 animate-pulse shrink-0" /> Confirm payment request
                                       </span>
                                       <span className="text-[8px] font-mono text-slate-500 uppercase">Arc gasless</span>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                    <div className="grid grid-cols-2 gap-1 text-[9.5px]">
                                       <div>
-                                        <span className="text-slate-400 font-mono text-[8px] uppercase tracking-wider">Recipient</span>
-                                        <div className="font-bold text-slate-900 mt-0.5">{msg.transaction.toName}</div>
+                                        <span className="text-slate-400 font-mono text-[7px] uppercase tracking-wider block">Recipient</span>
+                                        <div className="font-bold text-slate-900 mt-0.5 truncate">{msg.transaction.toName}</div>
                                       </div>
                                       <div>
-                                        <span className="text-slate-400 font-mono text-[8px] uppercase tracking-wider">Address</span>
-                                        <div className="font-mono text-slate-650 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 text-[8.5px] mt-0.5 truncate">
-                                          {msg.transaction.toAddress}
+                                        <span className="text-slate-400 font-mono text-[7px] uppercase tracking-wider block">Address</span>
+                                        <div className="font-mono text-slate-650 bg-slate-50 px-1 py-0.2 rounded border border-slate-200 text-[8px] mt-0.5 truncate" title={msg.transaction.toAddress}>
+                                          {msg.transaction.toAddress.slice(0, 6)}...{msg.transaction.toAddress.slice(-4)}
                                         </div>
                                       </div>
                                       <div>
-                                        <span className="text-slate-400 font-mono text-[8px] uppercase tracking-wider">Amount</span>
-                                        <div className="font-bold text-slate-950 text-xs mt-0.5">
+                                        <span className="text-slate-400 font-mono text-[7px] uppercase tracking-wider block">Amount</span>
+                                        <div className="font-bold text-slate-950 text-[10.5px] mt-0.5">
                                           {msg.transaction.amount} {msg.transaction.token}
                                         </div>
                                       </div>
                                       <div>
-                                        <span className="text-slate-400 font-mono text-[8px] uppercase tracking-wider">Context Memo</span>
+                                        <span className="text-slate-400 font-mono text-[7px] uppercase tracking-wider block">Context Memo</span>
                                         <div className="italic text-slate-650 mt-0.5 truncate font-sans text-[8.5px]">{msg.transaction.note || "N/A"}</div>
                                       </div>
                                     </div>
 
                                     {/* Actions block */}
                                     {activeDraft && activeDraft.id === msg.transaction.id ? (
-                                      <div className="flex gap-2 pt-1 pb-0.5">
+                                      <div className="flex gap-1.5 pt-1 pb-0.5">
                                         <button
                                           onClick={() => executeConfirmedTransaction(msg.transaction!)}
-                                          className="flex-1 bg-slate-900 text-white font-bold font-sans text-[10px] py-1 rounded hover:bg-slate-800 active:scale-[0.99] transition cursor-pointer shadow-3xs"
+                                          className="flex-1 bg-slate-900 text-white font-bold font-sans text-[9px] py-1 rounded hover:bg-slate-800 active:scale-[0.99] transition cursor-pointer shadow-3xs"
                                         >
                                           {securityConfig.biometricsEnabled ? "Approve" : "Sign & Send USDC"}
                                         </button>
                                         <button
                                           onClick={cancelTransactionDraft}
-                                          className="px-2 bg-slate-200 border border-slate-300 hover:bg-slate-250 text-slate-700 font-bold font-sans text-[10px] rounded transition"
+                                          className="px-2 bg-slate-100 border border-slate-300 hover:bg-slate-200 text-slate-650 font-bold font-sans text-[9px] rounded transition cursor-pointer"
                                         >
                                           Cancel
                                         </button>
                                       </div>
                                     ) : (
-                                      <div className="text-[8.5px] text-slate-400 uppercase font-mono tracking-wider pt-0.5 italic text-center">
+                                      <div className="text-[8px] text-slate-400 uppercase font-mono tracking-wider pt-0.5 italic text-center">
                                         Outdated signature session.
                                       </div>
                                     )}
@@ -1168,41 +1225,41 @@ export default function App() {
 
                                 {/* Interactive UI Success Transaction Details inline */}
                                 {msg.transaction && msg.status === "completed" && (
-                                  <div className="mt-2.5 p-3 rounded-xl bg-white/90 border border-emerald-300 text-slate-900 space-y-2.5 font-sans shadow-2xs">
-                                    <div className="flex items-center justify-between border-b border-emerald-100 pb-1.5 flex-wrap gap-1">
-                                      <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-[11px] uppercase tracking-wider">
-                                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                  <div className="mt-1.5 p-2 rounded-lg bg-white/95 border border-emerald-300 text-slate-900 space-y-1.5 font-sans shadow-3xs w-64 max-w-sm sm:w-80">
+                                    <div className="flex items-center justify-between border-b border-emerald-100 pb-1 flex-wrap gap-1">
+                                      <div className="flex items-center gap-1 text-emerald-800 font-bold text-[9px] uppercase tracking-wider">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                         <span>On-Chain Receipt Finalized</span>
                                       </div>
-                                      <span className="text-[8px] px-1.5 py-0.2 bg-emerald-100 border border-emerald-250 text-emerald-800 rounded-full font-mono font-bold uppercase">arc testnet</span>
+                                      <span className="text-[7.5px] px-1 py-0.2 bg-emerald-50 border border-emerald-250 text-emerald-800 rounded font-mono font-bold uppercase">arc testnet</span>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[10px]">
-                                      <div className="col-span-2 sm:col-span-1">
-                                        <span className="text-slate-500 font-mono text-[8px] uppercase tracking-wider block">Transfer Amount</span>
-                                        <div className="font-extrabold text-slate-950 text-[13px] mt-0.5 text-emerald-700">
+                                    <div className="grid grid-cols-2 gap-1 text-[9.5px]">
+                                      <div>
+                                        <span className="text-slate-500 font-mono text-[7px] uppercase tracking-wider block">Transfer Amount</span>
+                                        <div className="font-extrabold text-emerald-700 text-[11px] mt-0.5">
                                           {msg.transaction.amount} {msg.transaction.token}
                                         </div>
                                       </div>
                                       
-                                      <div className="col-span-2 sm:col-span-1">
-                                        <span className="text-slate-500 font-mono text-[8px] uppercase tracking-wider block">Recipient Contact</span>
-                                        <div className="font-bold text-slate-900 mt-0.5 truncate flex items-center gap-1">
+                                      <div>
+                                        <span className="text-slate-500 font-mono text-[7px] uppercase tracking-wider block">Recipient Contact</span>
+                                        <div className="font-bold text-slate-900 mt-0.5 truncate flex items-center gap-0.5">
                                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                                           {msg.transaction.toName}
                                         </div>
                                       </div>
 
                                       <div className="col-span-2">
-                                        <span className="text-slate-405 font-mono text-[8px] uppercase tracking-wider block">Recipient EVM Address</span>
-                                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg text-[9px] font-mono text-slate-800 mt-1">
-                                          <span className="truncate select-all max-w-[85%]">{msg.transaction.toAddress}</span>
+                                        <span className="text-slate-500 font-mono text-[7px] uppercase tracking-wider block">Recipient EVM Address</span>
+                                        <div className="flex items-center justify-between bg-slate-50 border border-slate-150 px-1.5 py-0.5 rounded text-[8px] font-mono text-slate-800 mt-0.5">
+                                          <span className="truncate select-all max-w-[80%]">{msg.transaction.toAddress}</span>
                                           <button
                                             onClick={() => {
                                               navigator.clipboard.writeText(msg.transaction!.toAddress);
                                               triggerSynthBeep(600, 400, "success");
                                             }}
-                                            className="ml-1 text-[8px] text-slate-400 hover:text-slate-700 font-bold shrink-0 cursor-pointer"
+                                            className="ml-1 text-[8px] text-blue-650 hover:text-blue-800 font-bold shrink-0 cursor-pointer"
                                             title="Copy address"
                                           >
                                             Copy
@@ -1211,37 +1268,37 @@ export default function App() {
                                       </div>
                                     </div>
 
-                                    <div className="pt-2 border-t border-emerald-100 text-[9px]">
+                                    <div className="pt-1.5 border-t border-emerald-100 text-[8px]">
                                       {msg.transaction.isLocalLedger ? (
-                                        <div className="text-[8.5px] text-emerald-800 font-sans font-semibold flex items-center gap-1 py-0.5 px-1.5 bg-emerald-50 rounded border border-emerald-200 select-none">
+                                        <div className="text-[8px] text-emerald-800 font-sans font-semibold flex items-center gap-1 py-0.5 px-1 bg-emerald-50/50 rounded border border-emerald-150 select-none">
                                           <span>Local Enclave Ledger Adjustment (Sandbox State Sync)</span>
                                         </div>
                                       ) : (
-                                        <div className="space-y-2">
+                                        <div className="space-y-1">
                                           <div>
-                                            <span className="text-slate-500 font-mono text-[8px] uppercase tracking-wider block mb-1">On-Chain Transaction Proof (Hash)</span>
-                                            <div className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[8px] font-mono text-slate-650 break-all select-all font-semibold">
+                                            <span className="text-slate-500 font-mono text-[7px] uppercase tracking-wider block">On-Chain Transaction Proof (Hash)</span>
+                                            <div className="px-1.5 py-0.5 bg-slate-50 border border-slate-150 rounded text-[7.5px] font-mono text-slate-600 break-all select-all font-semibold leading-tight">
                                               {msg.transaction.txHash}
                                             </div>
                                           </div>
                                           
-                                          <div className="flex flex-wrap items-center gap-1.5">
+                                          <div className="flex flex-wrap items-center gap-1">
                                             {/* Open in New Tab for Desktop */}
                                             <a
                                               href={`https://testnet.arcscan.app/tx/${msg.transaction.txHash}`}
                                               target="_blank"
                                               rel="noreferrer"
-                                              className="inline-flex items-center gap-1 text-[8.5px] font-bold px-2 py-1 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-750 rounded-lg transition font-sans cursor-pointer"
+                                              className="inline-flex items-center gap-0.5 text-[8px] font-bold px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 border border-slate-255 text-slate-700 rounded transition font-sans cursor-pointer"
                                             >
                                               <span>New Tab Explorer</span>
-                                              <ExternalLink className="w-2.5 h-2.5 text-slate-500" />
+                                              <ExternalLink className="w-2 h-2 text-slate-500" />
                                             </a>
 
                                             {/* Open in Same Tab for Mobile dApp Browsers to avoid blocked popup windows */}
                                             <a
                                               href={`https://testnet.arcscan.app/tx/${msg.transaction.txHash}`}
                                               target="_self"
-                                              className="inline-flex items-center gap-0.5 text-[8.5px] font-bold px-2 py-1 bg-slate-900 hover:bg-slate-850 text-white rounded-lg transition font-sans cursor-pointer"
+                                              className="inline-flex items-center gap-0.5 text-[8px] font-bold px-1.5 py-0.5 bg-slate-900 hover:bg-slate-850 text-white rounded transition font-sans cursor-pointer"
                                               title="Direct link for MetaMask/Trust mobile wallet browser"
                                             >
                                               <span>Same Tab</span>
@@ -1258,23 +1315,13 @@ export default function App() {
                                                   setCopiedTxId(null);
                                                 }, 2000);
                                               }}
-                                              className={`inline-flex items-center gap-1 text-[8.5px] font-bold px-2 py-1 rounded-lg transition font-sans cursor-pointer ${
+                                              className={`inline-flex items-center gap-0.5 text-[8px] font-bold px-1.5 py-0.5 rounded transition font-sans cursor-pointer ${
                                                 copiedTxId === msg.id 
-                                                  ? "bg-emerald-100 border border-emerald-300 text-emerald-800" 
-                                                  : "bg-blue-50 hover:bg-blue-100 border border-blue-250 text-blue-700"
+                                                  ? "bg-emerald-50 border border-emerald-200 text-emerald-800" 
+                                                  : "bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700"
                                               }`}
                                             >
-                                              {copiedTxId === msg.id ? (
-                                                <>
-                                                  <Check className="w-2.5 h-2.5 text-emerald-600 font-bold animate-bounce" />
-                                                  <span>Copied Link!</span>
-                                                </>
-                                              ) : (
-                                                <>
-                                                  <Copy className="w-2.5 h-2.5 text-blue-500" />
-                                                  <span>Copy Link</span>
-                                                </>
-                                              )}
+                                              {copiedTxId === msg.id ? "Copied!" : "Copy Link"}
                                             </button>
                                           </div>
                                         </div>
@@ -1285,23 +1332,22 @@ export default function App() {
 
                                 {/* Interactive UI Insufficient Gas / Funds Help Card inline */}
                                 {(msg.status === "failed" || msg.text?.toLowerCase().includes("insufficient funds")) && (
-                                  <div className="mt-2.5 p-3 rounded-xl bg-rose-50 border-2 border-rose-300 text-slate-900 space-y-2.5 font-sans shadow-2xs">
-                                    <div className="flex items-center justify-between border-b border-rose-100 pb-1.5 flex-wrap gap-1">
-                                      <div className="flex items-center gap-1.5 text-rose-800 font-bold text-[10.5px] uppercase tracking-wider">
-                                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                                  <div className="mt-1.5 p-2 rounded-lg bg-rose-50 border border-rose-300 text-slate-900 space-y-1.5 font-sans shadow-3xs w-64 max-w-sm sm:w-80">
+                                    <div className="flex items-center justify-between border-b border-rose-100 pb-0.5 flex-wrap gap-1">
+                                      <div className="flex items-center gap-1 text-rose-800 font-bold text-[9px] uppercase tracking-wider">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
                                         <span>Gas Faucet & Sandbox Guide</span>
                                       </div>
-                                      <span className="text-[8px] px-1.5 py-0.2 bg-rose-100 border border-rose-250 text-rose-800 rounded-full font-mono font-bold uppercase">low funds warning</span>
+                                      <span className="text-[7.5px] px-1 py-0.2 bg-rose-100 border border-rose-250 text-rose-800 rounded font-mono font-bold uppercase">low funds</span>
                                     </div>
 
-                                    <div className="text-[10px] text-slate-700 leading-normal space-y-1.5">
+                                    <div className="text-[9px] text-slate-700 leading-normal space-y-1">
                                       <p>
-                                        Your wallet address <strong className="font-mono bg-white px-1 border border-slate-200 rounded text-[9px] select-all">{wallet?.address}</strong> on the live Arc Testnet has no native tokens to pay for gas.
+                                        Your gas wallet <strong className="font-mono bg-white px-1 border border-slate-150 rounded text-[8.5px] select-all">{wallet?.address ? `${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)}` : ""}</strong> has no native tokens on Arc Testnet to claim.
                                       </p>
-                                      <p className="font-semibold text-slate-900">Choose one of the swift pathways below to resolve this:</p>
                                     </div>
 
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1.5">
+                                    <div className="grid grid-cols-2 gap-1.5 pt-0.5">
                                       {/* Pathway 1: Toggle simulated mode */}
                                       <button
                                         onClick={async () => {
@@ -1319,14 +1365,14 @@ export default function App() {
                                             }
                                           ]);
                                         }}
-                                        className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-[10px] rounded-lg cursor-pointer transition active:scale-[0.98] shadow-3xs"
+                                        className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-[8.5px] rounded-md cursor-pointer transition active:scale-[0.98] shadow-3xs"
                                       >
-                                        <span>Switch to Simulated Mode ⚡</span>
+                                        Simulated Mock ⚡
                                       </button>
 
                                       {/* Pathway 2: Open official faucet */}
                                       <a
-                                        href="https://faucet.testnet.arc.network"
+                                        href="https://faucet.circle.com/"
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         onClick={() => {
@@ -1335,9 +1381,9 @@ export default function App() {
                                             navigator.clipboard.writeText(wallet.address);
                                           }
                                         }}
-                                        className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] rounded-lg cursor-pointer transition text-center active:scale-[0.98] shadow-3xs"
+                                        className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[8.5px] rounded-md cursor-pointer transition text-center active:scale-[0.98] shadow-3xs"
                                       >
-                                        <span>Claim Free Arc Faucet Gas 🚀</span>
+                                        CLAIM TESTNET GAS/USDC ⚡
                                       </a>
                                     </div>
                                   </div>
@@ -1353,14 +1399,14 @@ export default function App() {
                     {/* Spinner loading state */}
                     {isProcessing && (
                       <div className="flex justify-start">
-                        <div className="max-w-[85%] flex gap-2.5">
-                          <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-slate-200 border border-slate-300 text-slate-650">
-                            <Bot className="w-3.5 h-3.5 animate-spin" />
+                        <div className="max-w-[85%] flex gap-1.5">
+                          <div className="w-5 h-5 rounded overflow-hidden flex items-center justify-center shrink-0 bg-slate-200 border border-slate-350 text-slate-650">
+                            <Bot className="w-3 h-3 animate-spin animate-pulse" />
                           </div>
                           <div className="space-y-1 text-left">
-                            <div className="px-3 py-1.5 bg-slate-100/90 text-slate-600 border border-slate-300 rounded-xl rounded-tl-none font-sans text-xs flex items-center gap-2">
-                              <span className="w-1 h-1 bg-slate-500 rounded-full animate-ping" />
-                              <span>Evaluating request intent...</span>
+                            <div className="px-2.5 py-1 bg-slate-100/90 text-slate-600 border border-slate-300 rounded-xl rounded-tl-none font-sans text-[11px] flex items-center gap-1.5 shadow-3xs">
+                              <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" />
+                              <span>Agent evaluating request intent...</span>
                             </div>
                           </div>
                         </div>
@@ -1500,7 +1546,7 @@ export default function App() {
             )}
 
             {activeTab === "wallet" && (
-              <div className="w-full h-full flex-1 min-h-0 flex flex-col justify-center items-center">
+              <div className="w-full flex-1 min-h-0 overflow-y-auto py-2 px-1.5 flex flex-col justify-start items-center">
                 <div className="max-w-4xl w-full">
                     <WalletCard 
                       wallet={wallet} 
@@ -1513,7 +1559,7 @@ export default function App() {
               )}
 
               {activeTab === "transactions" && (
-                <div className="w-full h-full flex-1 min-h-0 flex flex-col">
+                <div className="w-full flex-1 min-h-0 flex flex-col overflow-y-auto py-1 bg-white border border-slate-300 rounded-xl">
                   <TransactionHistory 
                     transactions={transactions} 
                     onRefresh={fetchTransactions} 
@@ -1522,7 +1568,7 @@ export default function App() {
               )}
 
               {activeTab === "contacts" && (
-                <div className="w-full h-full flex-1 min-h-0 flex flex-col">
+                <div className="w-full flex-1 min-h-0 flex flex-col overflow-y-auto py-1 bg-white border border-slate-300 rounded-xl">
                   <ContactsDatabase 
                     contacts={contacts} 
                     onAddContact={handleAddContact} 
@@ -1532,7 +1578,7 @@ export default function App() {
               )}
 
               {activeTab === "security" && (
-                <div className="w-full h-full flex-1 min-h-0 flex flex-col">
+                <div className="w-full flex-1 min-h-0 flex flex-col overflow-y-auto py-1 bg-white border border-slate-300 rounded-xl">
                   <SecurityConsole 
                     securityConfig={securityConfig} 
                     onToggleBiometrics={handleToggleBiometrics} 
@@ -1552,9 +1598,14 @@ export default function App() {
           <span>© ARC COMPANION 2026. BY WAZIRI.</span>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            <span className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
-            <span>Secure Tunnel</span>
+          <div className="flex items-center gap-1.5 font-sans font-bold text-slate-700">
+            <img 
+              src={robotAvatar} 
+              alt="Arccompanion Logo" 
+              className="w-3.5 h-3.5 rounded-md object-cover"
+              referrerPolicy="no-referrer"
+            />
+            <span className="text-[10px] tracking-tight">Arccompanion</span>
           </div>
           <span className="hidden md:inline">UTC: {new Date().toISOString().replace('T', ' ').slice(0, 19)}</span>
           <div className="flex items-center gap-3 sm:border-l sm:border-slate-300 sm:pl-3">

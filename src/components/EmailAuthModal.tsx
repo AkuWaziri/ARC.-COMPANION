@@ -19,6 +19,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { WalletState } from "../types";
 import { ethers } from "ethers";
 import { useAuth } from "../context/AuthContext";
+import { useAccount, useConnect, useDisconnect, useSignMessage, useSwitchChain } from "wagmi";
+import { useAppKit } from "@reown/appkit/react";
 import robotAvatar from "../assets/images/friendly_bot_logo_1780649113441.png";
 
 interface EmailAuthModalProps {
@@ -41,8 +43,16 @@ const BIP39_WORDS = [
 
 export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState = 'unauthenticated' }: EmailAuthModalProps) {
   const { userEmail, login, connectWallet, logout } = useAuth();
+
+  // Web3 hooks
+  const { address: wagmiAddress, isConnected: wagmiIsConnected, chainId: wavWalletChainId } = useAccount();
+  const { connectAsync, connectors } = useConnect();
+  const { disconnectAsync } = useDisconnect();
+  const { signMessageAsync } = useSignMessage();
+  const { switchChainAsync } = useSwitchChain();
+  const { open: openAppKit } = useAppKit();
   
-  const [step, setStep] = useState<'methods' | 'email-input' | 'email-otp' | 'email-passphrase' | 'wallet-connect' | 'restore-mnemonic' | 'wallet-prompt'>('methods');
+  const [step, setStep] = useState<'methods' | 'email-input' | 'email-otp' | 'email-passphrase' | 'wallet-connect' | 'restore-mnemonic' | 'wallet-prompt'>('wallet-connect');
   const [walletConnectTab, setWalletConnectTab] = useState<'qr' | 'extension'>('extension');
   const [selectedWalletName, setSelectedWalletName] = useState("");
   const [email, setEmail] = useState(() => userEmail || "");
@@ -52,6 +62,15 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
       setEmail(userEmail);
     }
   }, [userEmail]);
+
+  useEffect(() => {
+    if (step === 'wallet-connect' || step === 'wallet-prompt') {
+      localStorage.setItem("arc_connecting_web3", "true");
+    } else {
+      localStorage.removeItem("arc_connecting_web3");
+    }
+    window.dispatchEvent(new Event("arc_auth_state_change"));
+  }, [step]);
 
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [mnemonicInput, setMnemonicInput] = useState("");
@@ -274,23 +293,11 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
 
   // Wallet Generator using ethers for real valid credentials on Arc Testnet
   const generateNewWalletFromMnemonic = () => {
-    const trimmedEmail = email.trim().toLowerCase();
-    if (trimmedEmail) {
-      const storageKey = `arc_wallet_email_${trimmedEmail}`;
-      const savedWalletStr = localStorage.getItem(storageKey);
-      if (savedWalletStr) {
-        try {
-          const savedWallet = JSON.parse(savedWalletStr);
-          setGeneratedWallet(savedWallet);
-          return savedWallet;
-        } catch (e) {
-          console.warn("Failed to parse saved email wallet:", e);
-        }
-      }
-    }
-
     try {
       const randomWallet = ethers.Wallet.createRandom();
+      const virtualEmail = `enclave-${randomWallet.address.toLowerCase().slice(2, 10)}@arc.enclave`;
+      setEmail(virtualEmail);
+
       const newWallet: WalletState = {
         address: randomWallet.address,
         balance: 150.00, // Starting USDC balance
@@ -298,11 +305,6 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
         seedPhrase: randomWallet.mnemonic ? randomWallet.mnemonic.phrase : BIP39_WORDS.slice(0, 12).join(" "),
         isConnected: true
       };
-
-      if (trimmedEmail) {
-        const storageKey = `arc_wallet_email_${trimmedEmail}`;
-        localStorage.setItem(storageKey, JSON.stringify(newWallet));
-      }
 
       setGeneratedWallet(newWallet);
       return newWallet;
@@ -315,6 +317,8 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
       }
       const privateKey = "0x" + keyHex;
       const fallbackWallet = new ethers.Wallet(privateKey);
+      const virtualEmail = `enclave-${fallbackWallet.address.toLowerCase().slice(2, 10)}@arc.enclave`;
+      setEmail(virtualEmail);
       
       const newWallet: WalletState = {
         address: fallbackWallet.address,
@@ -323,11 +327,6 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
         seedPhrase: BIP39_WORDS.slice(0, 12).join(" "),
         isConnected: true
       };
-
-      if (trimmedEmail) {
-        const storageKey = `arc_wallet_email_${trimmedEmail}`;
-        localStorage.setItem(storageKey, JSON.stringify(newWallet));
-      }
 
       setGeneratedWallet(newWallet);
       return newWallet;
@@ -575,7 +574,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
     setErrorMsg("");
     setIsLoading(true);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       setIsLoading(false);
       let restoredWallet: WalletState;
       let secureLogs: string[];
@@ -610,8 +609,33 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
         ];
       }
 
+      const virtualEmail = `enclave-${restoredWallet.address.toLowerCase().slice(2, 10)}@arc.enclave`;
+      setEmail(virtualEmail);
+
+      // Sync backend wallet state
+      try {
+        await fetch("/api/wallet/auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: restoredWallet.address,
+            balance: restoredWallet.balance,
+            privateKey: restoredWallet.privateKey,
+            seedPhrase: restoredWallet.seedPhrase,
+            isConnected: true,
+            email: virtualEmail
+          })
+        });
+      } catch (err) {
+        console.warn("Restore sync skipped", err);
+      }
+
+      // Authorize session locally
+      const sessionToken = "session_" + Math.random().toString(36).substring(2) + "_" + Date.now();
+      login(virtualEmail, sessionToken);
+
       triggerBeep(600, 1200, "success");
-      onLoginSuccess(restoredWallet, secureLogs);
+      onLoginSuccess(restoredWallet, secureLogs, virtualEmail);
     }, 1000);
   };
 
@@ -645,6 +669,91 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
     }
   };
 
+  const handleSiweAuth = async (addr: string) => {
+    setIsLoading(true);
+    setErrorMsg("");
+    try {
+      // 1. Fetch nonce from server-side with cache-busting timestamp
+      const nonceRes = await fetch(`/api/auth/nonce?t=${Date.now()}`);
+      if (!nonceRes.ok) throw new Error("Could not retrieve secure nonce from authentication coordinator.");
+      const { nonce } = await nonceRes.json();
+
+      // 2. Format standard SIWE Message
+      const domain = typeof window !== 'undefined' ? window.location.host : 'arc.network';
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://testnet.arc.network';
+      const statement = "Sign in to Arc Network Portal to initiate decentralized secure transactions and access your unified dashboard console.";
+      const IssuedAt = new Date().toISOString();
+      const siweMsg = `${domain} wants you to sign in with your Ethereum account:
+${addr}
+
+${statement}
+
+URI: ${origin}
+Version: 1
+Chain ID: 5042002
+Nonce: ${nonce}
+Issued At: ${IssuedAt}`;
+
+      // 3. Request cryptographic signature from wallet
+      let signature;
+      try {
+        if (typeof window !== "undefined" && (window as any).ethereum) {
+          try {
+            signature = await (window as any).ethereum.request({
+              method: 'personal_sign',
+              params: [siweMsg, addr],
+            });
+          } catch (rErr) {
+            signature = await signMessageAsync({ message: siweMsg, account: addr as `0x${string}` });
+          }
+        } else {
+          signature = await signMessageAsync({ message: siweMsg, account: addr as `0x${string}` });
+        }
+      } catch (signErr: any) {
+        throw new Error(`Signature request cancelled or failed: ${signErr.message || signErr}`);
+      }
+
+      // 4. Submit signature details server-side for cryptographic session generation
+      const verifRes = await fetch("/api/auth/siwe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: siweMsg,
+          signature,
+          address: addr,
+          nonce
+        })
+      });
+
+      if (!verifRes.ok) {
+        const errorData = await verifRes.json().catch(() => ({}));
+        throw new Error(errorData.error || "Cryptographic SIWE verification failed.");
+      }
+
+      const verifiedDetails = await verifRes.json();
+      
+      triggerBeep(600, 1200, "success");
+      
+      // Update global context authentication state
+      login(verifiedDetails.email, verifiedDetails.sessionToken);
+      
+      const secureLogs = [
+        `Authenticated via secure Sign-In with Ethereum (SIWE).`,
+        `EVM public key verified: ${addr}`,
+        `Replay attack protected single-use nonce: ${nonce}`,
+        `Session token dispatched successfully.`
+      ];
+      
+      onLoginSuccess(verifiedDetails.wallet, secureLogs, verifiedDetails.email);
+    } catch (err: any) {
+      console.error("SIWE Flow Failed:", err);
+      setErrorMsg(err.message || "Sign-In with Ethereum failed.");
+      triggerBeep(260, 130, "fail");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleWalletConnectSelect = async (walletName: string) => {
     localStorage.removeItem("arc_user_signed_out");
     setSelectedWalletName(walletName);
@@ -668,9 +777,15 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
   };
 
   const triggerAddOrSwitchChain = async (): Promise<boolean> => {
-    if (typeof window === "undefined" || !(window as any).ethereum) return false;
+    if (typeof window === "undefined" || (!(window as any).ethereum && !switchChainAsync)) return false;
     setErrorMsg("");
     try {
+      if (switchChainAsync) {
+        await switchChainAsync({ chainId: 5042002 });
+        triggerBeep(600, 1200, "success");
+        return true;
+      }
+
       // Attempt switch first
       await (window as any).ethereum.request({
         method: 'wallet_switchEthereumChain',
@@ -686,8 +801,6 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
     } catch (switchError: any) {
       console.warn("Switch chain failed, attempting to add standard Arc Testnet definition:", switchError);
       
-      // Error code 4902 is standard for chain not added.
-      // But some other providers use different error formats or custom messages, so we catch generally.
       try {
         await (window as any).ethereum.request({
           method: 'wallet_addEthereumChain',
@@ -731,6 +844,27 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
     setErrorMsg("");
     triggerBeep(520, 800, "neutral");
 
+    // Try finding a matching EIP-6963 connector in WAGMI connectors list for one-click connection
+    const connectorLower = walletName.toLowerCase();
+    const cleanId = connectorLower.includes("metamask") ? "metamask" : connectorLower.includes("rabby") ? "rabby" : connectorLower.includes("trust") ? "trust" : "";
+    const foundConnector = connectors.find(conn => 
+      conn.name.toLowerCase().includes(walletName.toLowerCase()) || 
+      conn.id.toLowerCase().includes(cleanId)
+    );
+
+    if (foundConnector) {
+      try {
+        const connectRes = await connectAsync({ connector: foundConnector });
+        const address = connectRes.accounts[0];
+        if (address) {
+          await handleSiweAuth(address);
+          return;
+        }
+      } catch (err: any) {
+        console.warn("WAGMI connector login failed, attempting window.ethereum native fallback:", err);
+      }
+    }
+
     if (typeof window === "undefined" || !(window as any).ethereum) {
       setErrorMsg("No Web3 provider detected in your current browser session.");
       setIsLoading(false);
@@ -738,7 +872,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
     }
 
     try {
-      // Direct request account access (highly compatible on all mobile & desktop extensions)
+      // Direct request account access
       const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
       const address = accounts && accounts[0];
       
@@ -746,7 +880,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
         throw new Error("No authorized accounts returned from wallet.");
       }
 
-      // 3. Refresh/Verify the network setting
+      // Refresh/Verify the network setting
       let currentChainId = await (window as any).ethereum.request({ method: 'eth_chainId' });
       setWalletChainId(currentChainId);
 
@@ -766,37 +900,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
         }
       }
 
-      // 4. Fetch connected account balance
-      let balance = 150.00;
-      try {
-        const responseBalance = await fetch(`/api/wallet/balance/${address}`);
-        if (responseBalance.ok) {
-          const balanceData = await responseBalance.json();
-          balance = balanceData.balance ?? 150.00;
-        }
-      } catch (bErr) {
-        console.warn("Could not query chain balance:", bErr);
-      }
-
-      const connectedWallet: WalletState = {
-        address: address,
-        balance: balance,
-        privateKey: "Hardware/Extension Key", // Crucial: sets isExtensionWallet = true for real extension transaction signing.
-        seedPhrase: `Instantiated active native extension link to ${walletName}. Managed securely via your wallet provider.`,
-        isConnected: true
-      };
-
-      setIsLoading(false);
-      triggerBeep(520, 1040, "success");
-
-      const secureLogs = [
-        `Sync-connected natively with ${walletName} Web3 provider.`,
-        `EVM public address: ${address}`,
-        `Network active: Arc Testnet (5042002)`,
-        `Connected securely on correct RPC (https://rpc.testnet.arc.network).`
-      ];
-
-      onLoginSuccess(connectedWallet, secureLogs);
+      await handleSiweAuth(address);
     } catch (err: any) {
       console.error("Native wallet connection failed:", err);
       setErrorMsg(`Wallet connection failed: ${err.message || err}`);
@@ -954,9 +1058,14 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
             <Lock className="w-4 h-4 text-slate-800" />
             <span className="text-[10px] font-mono tracking-widest font-bold uppercase text-slate-500">Secure Authentication</span>
           </div>
-          <div className="flex items-center gap-1.5 bg-slate-200 px-2.5 py-1 rounded-full border border-slate-400 text-[9px] font-mono font-bold text-slate-800">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Secure Tunnel ACTIVE</span>
+          <div className="flex items-center gap-1.5 bg-slate-200 px-2 py-1 rounded-full border border-slate-350 text-[10px] font-sans font-bold text-slate-800">
+            <img 
+              src={robotAvatar} 
+              alt="Arccompanion Logo" 
+              className="w-4 h-4 rounded-md object-cover"
+              referrerPolicy="no-referrer"
+            />
+            <span className="tracking-tight">Arccompanion</span>
           </div>
         </div>
 
@@ -1026,41 +1135,70 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
                 {/* Right Column: Connection selections */}
                 <div className="flex flex-col justify-center bg-slate-200 border border-slate-350 rounded-2xl p-6 gap-4 md:min-h-[220px]">
                   {forceState === "unauthenticated" ? (
-                    <div className="space-y-3.5">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">1. Secure Email Login</span>
+                    <div className="space-y-3.5 animate-fade-in">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">Select Authentication Method / Key</span>
                       
-                      <div className="flex flex-col gap-2">
-                        <button
-                          onClick={handleGoogleLogin}
-                          disabled={isLoading}
-                          className="flex items-center justify-center gap-2.5 px-3 py-2.5 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98]"
-                        >
-                          <span className="text-md shrink-0 select-none">🔑</span>
-                          <span className="text-xs font-bold text-slate-800">Sign Up / Login with Gmail</span>
-                        </button>
-
+                      <div className="flex flex-col gap-2.5">
+                        {/* Option 1: Web3 Wallet Connect */}
                         <button
                           onClick={() => {
                             triggerBeep(350, 480, "neutral");
                             setErrorMsg("");
-                            setStep('email-input');
+                            setStep('wallet-connect');
                           }}
-                          className="flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-950 hover:bg-slate-850 text-white rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98]"
+                          className="flex items-center justify-between px-3.5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98]"
                         >
-                          <Mail className="w-4 h-4 text-rose-400 shrink-0" />
-                          <span className="text-xs font-bold">Connect via Email OTP</span>
+                          <div className="flex items-center gap-2.5">
+                            <Wallet className="w-4 h-4 text-white shrink-0" />
+                            <span className="text-xs font-black font-sans uppercase tracking-wide">Connect Web3 Wallet (SIWE)</span>
+                          </div>
+                          <ArrowRight className="w-4 h-4 text-white/85" />
+                        </button>
+
+                        {/* Option 2: Generate New Enclave Vault */}
+                        <button
+                          onClick={() => {
+                            triggerBeep(350, 480, "neutral");
+                            setErrorMsg("");
+                            generateNewWalletFromMnemonic();
+                            setStep('email-passphrase');
+                            setSeedVerifySubstep('view');
+                          }}
+                          className="flex items-center justify-between px-3.5 py-3 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-white rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98]"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <Fingerprint className="w-4 h-4 text-emerald-400 shrink-0" />
+                            <span className="text-xs font-black font-sans uppercase tracking-wide text-emerald-400">Create Private Enclave Vault</span>
+                          </div>
+                          <ArrowRight className="w-4 h-4 text-emerald-400" />
+                        </button>
+
+                        {/* Option 3: Restore Existing Wallet */}
+                        <button
+                          onClick={() => {
+                            triggerBeep(350, 480, "neutral");
+                            setErrorMsg("");
+                            setStep('restore-mnemonic');
+                          }}
+                          className="flex items-center justify-between px-3.5 py-3 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-xl transition cursor-pointer shadow-xs active:scale-[0.98]"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <Key className="w-4 h-4 text-amber-500 shrink-0" />
+                            <span className="text-xs font-black font-sans uppercase tracking-wide">Restore Existing Mnemonic / Key</span>
+                          </div>
+                          <ArrowRight className="w-4 h-4 text-slate-400" />
                         </button>
                       </div>
                       
                       <p className="text-[9px] text-slate-500 font-medium text-center leading-normal">
-                        You must complete Google or Email login before connecting or restored wallets.
+                        Access securely using decoupled non-custodial credentials or direct Web3 wallet signatures.
                       </p>
                     </div>
                   ) : (
                     <div className="space-y-3.5">
                       <div className="flex items-center justify-between bg-white border border-slate-300 p-2 text-[10px] rounded-xl shadow-3xs">
                         <div className="truncate font-mono font-bold text-slate-800 max-w-[150px]">
-                          👤 {userEmail || email}
+                          👤 {userEmail && (userEmail.startsWith("enclave-") || userEmail.startsWith("siwe-")) ? "Sovereign Enclave User" : (userEmail || email)}
                         </div>
                         <button
                           onClick={logout}
@@ -1068,6 +1206,14 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
                         >
                           SIGN OUT
                         </button>
+                      </div>
+
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-[10.5px] font-mono leading-relaxed space-y-1">
+                        <span className="font-bold uppercase tracking-wider text-rose-700 block text-[9px] flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
+                          Wallet Not Connected
+                        </span>
+                        <p className="text-[10px] text-slate-500 leading-tight">No active confirmed Web3 provider or secure enclave key connected. Please link or provision a credential profile below.</p>
                       </div>
 
                       <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">2. Connect / Provision Wallet</span>
@@ -1301,7 +1447,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
                           <span className="text-xs font-bold uppercase tracking-wider font-display">Wallet Generated Successfully!</span>
                         </div>
                         <p className="text-[11px] text-[#15803d] mt-1 leading-relaxed">
-                          Your email identity is verified. We have provisioned a brand new EVM compatible wallet on the Arc Enclave.
+                          We have provisioned a brand new secure EVM compatible wallet on the Arc Cryptographic Enclave.
                         </p>
                       </div>
 
@@ -1525,6 +1671,9 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
                         triggerBeep(600, 1500, "success");
 
                         try {
+                          const sessionToken = "session_" + Math.random().toString(36).substring(2) + "_" + Date.now();
+                          login(email, sessionToken);
+
                           const syncRes = await fetch("/api/wallet/auth", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
@@ -1575,12 +1724,6 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
               className="space-y-4 text-left"
             >
               <div>
-                <button 
-                  onClick={() => setStep('methods')}
-                  className="text-[10px] hover:underline uppercase tracking-wider font-mono text-blue-600 hover:text-blue-800 font-bold mb-2 block cursor-pointer transition-colors"
-                >
-                  &larr; Back to login
-                </button>
                 <h2 className="text-lg font-bold font-display text-slate-950">Establish Web3 Connection</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Synchronize with standard browser extension credentials or trigger secure mobile wallets.
@@ -1594,50 +1737,72 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
                 </div>
               )}
 
+
+
               {/* Extension selector grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => handleWalletConnectSelect("MetaMask")}
-                  className="flex items-center justify-between p-2.5 bg-slate-150 border border-slate-350 hover:border-slate-450 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+                  className="flex items-center gap-2.5 p-2.5 bg-slate-150 border border-slate-300 hover:border-slate-400 hover:bg-slate-200 rounded-xl transition cursor-pointer text-left"
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 bg-amber-500/10 border border-amber-500/20 text-[10px] rounded-lg flex items-center justify-center select-none shrink-0 font-bold">
-                      🦊
-                    </div>
-                    <div className="text-left">
-                      <span className="text-xs font-bold text-slate-900 block leading-tight">MetaMask</span>
-                      <span className="text-[8px] font-mono text-slate-450 block uppercase leading-none mt-0.5">Mobile & Ext</span>
-                    </div>
+                  <div className="w-6 h-6 bg-amber-500/10 border border-amber-500/20 text-xs rounded-lg flex items-center justify-center select-none shrink-0 font-bold">
+                    🦊
+                  </div>
+                  <div className="leading-tight">
+                    <span className="text-xs font-bold text-slate-900 block font-sans">MetaMask</span>
+                    <span className="text-[7.5px] font-mono text-slate-450 block uppercase font-bold">One-Click</span>
                   </div>
                 </button>
 
                 <button
                   onClick={() => handleWalletConnectSelect("Rabby Wallet")}
-                  className="flex items-center justify-between p-2.5 bg-slate-150 border border-slate-350 hover:border-slate-450 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+                  className="flex items-center gap-2.5 p-2.5 bg-slate-150 border border-slate-300 hover:border-slate-400 hover:bg-slate-200 rounded-xl transition cursor-pointer text-left"
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 bg-indigo-500/10 border border-indigo-500/20 text-[10px] rounded-lg flex items-center justify-center select-none shrink-0 font-bold">
-                      🐰
-                    </div>
-                    <div className="text-left">
-                      <span className="text-xs font-bold text-slate-900 block leading-tight">Rabby</span>
-                      <span className="text-[8px] font-mono text-slate-450 block uppercase leading-none mt-0.5">Mobile & Ext</span>
-                    </div>
+                  <div className="w-6 h-6 bg-indigo-500/10 border border-indigo-500/20 text-xs rounded-lg flex items-center justify-center select-none shrink-0 font-bold">
+                    🐰
+                  </div>
+                  <div className="leading-tight">
+                    <span className="text-xs font-bold text-slate-900 block font-sans">Rabby</span>
+                    <span className="text-[7.5px] font-mono text-slate-450 block uppercase font-bold">One-Click</span>
                   </div>
                 </button>
 
                 <button
                   onClick={() => handleWalletConnectSelect("Trust Wallet")}
-                  className="flex items-center justify-between p-2.5 bg-slate-150 border border-slate-350 hover:border-slate-450 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+                  className="flex items-center gap-2.5 p-2.5 bg-slate-150 border border-slate-300 hover:border-slate-400 hover:bg-slate-200 rounded-xl transition cursor-pointer text-left"
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 bg-blue-500/10 border border-blue-500/20 text-[10px] rounded-lg flex items-center justify-center select-none shrink-0 font-bold">
-                      🛡️
-                    </div>
-                    <div className="text-left">
-                      <span className="text-xs font-bold text-slate-900 block leading-tight">Trust Wallet</span>
-                      <span className="text-[8px] font-mono text-slate-450 block uppercase leading-none mt-0.5">Mobile & Ext</span>
-                    </div>
+                  <div className="w-6 h-6 bg-blue-500/10 border border-blue-500/20 text-xs rounded-lg flex items-center justify-center select-none shrink-0 font-bold">
+                    🛡️
+                  </div>
+                  <div className="leading-tight">
+                    <span className="text-xs font-bold text-slate-900 block font-sans">Trust Wallet</span>
+                    <span className="text-[7.5px] font-mono text-slate-450 block uppercase font-bold">Deep Link</span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleWalletConnectSelect("Coinbase Wallet")}
+                  className="flex items-center gap-2.5 p-2.5 bg-slate-150 border border-slate-300 hover:border-slate-400 hover:bg-slate-200 rounded-xl transition cursor-pointer text-left"
+                >
+                  <div className="w-6 h-6 bg-blue-600/10 border border-blue-600/20 text-xs rounded-lg flex items-center justify-center select-none shrink-0 font-bold">
+                    🔵
+                  </div>
+                  <div className="leading-tight">
+                    <span className="text-xs font-bold text-slate-900 block font-sans">Coinbase</span>
+                    <span className="text-[7.5px] font-mono text-slate-450 block uppercase font-bold">EIP-6963</span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleWalletConnectSelect("Rainbow Wallet")}
+                  className="flex items-center gap-2.5 p-2.5 bg-slate-150 border border-slate-300 hover:border-slate-400 hover:bg-slate-200 rounded-xl transition cursor-pointer text-left col-span-2"
+                >
+                  <div className="w-6 h-6 bg-sky-400/10 border border-sky-400/20 text-xs rounded-lg flex items-center justify-center select-none shrink-0 font-bold">
+                    🌈
+                  </div>
+                  <div className="leading-tight">
+                    <span className="text-xs font-bold text-slate-900 block font-sans">Rainbow Wallet</span>
+                    <span className="text-[7.5px] font-mono text-slate-450 block uppercase font-bold">Decentralized Extension</span>
                   </div>
                 </button>
               </div>
@@ -1889,12 +2054,11 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
 
 
         {/* Secure Lock Badge at Footer */}
-        <div className="mt-6 pt-4 border-t border-slate-200 flex items-center justify-between text-[9px] font-mono text-slate-400 select-none uppercase">
+        <div className="mt-6 pt-4 border-t border-slate-200 flex items-center justify-center text-[9px] font-mono text-slate-400 select-none uppercase">
           <span className="flex items-center gap-1.5">
             <Lock className="w-3 h-3 text-slate-300" />
-            <span>ECC Secp256k1 Curve</span>
+            <span>Secure Connection</span>
           </span>
-          <span>Shielded MPC Sandbox</span>
         </div>
 
       </div>
