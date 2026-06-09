@@ -324,13 +324,13 @@
           appendLog('REJECTION', reasonStr);
         });
 
-        // Trigger loading timeout check when root remains unmounted after 2.5 seconds
+        // Trigger loading timeout check when root remains unmounted after 15 seconds
         setTimeout(function() {
           var root = document.getElementById('root');
           if (root && root.children.length === 0) {
-            appendLog('TIMEOUT', 'App did not mount children inside #root within 2500ms. Check the console or logs above for failed files.');
+            appendLog('TIMEOUT', 'App did not mount children inside #root within 15000ms. Under heavy Wagmi / Reown loading or slow CDN conditions, this may take a few extra seconds. Click dismiss to close this pane.');
           }
-        }, 2500);
+        }, 15000);
 
         function triggerDisplay() {
           var overlay = document.getElementById('diagnostics-overlay');
