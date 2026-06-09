@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from "r
 import { WalletState } from "../types";
 import { useAccount, useDisconnect } from "wagmi";
 import { verifyStoredJWT, clearCachedAuth } from "../lib/jwtHelper";
+import { API_BASE_URL } from "../config";
 
 export interface AuthContextType {
   userEmail: string | null;
@@ -158,7 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       try {
         setSessionToken(storedToken);
-        const res = await fetch(`/api/auth/verify-session?token=${encodeURIComponent(storedToken)}`);
+        const res = await fetch(`${API_BASE_URL}/api/auth/verify-session?token=${encodeURIComponent(storedToken)}`);
         if (res.ok) {
           const data = await res.json();
           if (data.success) {
@@ -244,7 +245,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      await fetch("/api/wallet/auth", {
+      await fetch(`${API_BASE_URL}/api/wallet/auth`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isConnected: false })

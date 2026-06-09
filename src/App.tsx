@@ -38,6 +38,7 @@ import { useAuth } from "./context/AuthContext";
 import { AuthGuard } from "./components/AuthGuard";
 import robotAvatar from "./assets/images/friendly_bot_logo_1780649113441.png";
 import { Message, WalletState, Contact, Transaction, SecurityConfig } from "./types";
+import { API_BASE_URL } from "./config";
 
 let lastBeepTime = 0;
 
@@ -213,7 +214,7 @@ export default function App() {
     // sync back to server-side router
     const syncMode = async () => {
       try {
-        await fetch("/api/wallet/mode", {
+        await fetch(`${API_BASE_URL}/api/wallet/mode`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mode: networkMode })
@@ -247,7 +248,7 @@ export default function App() {
             setWallet(updatedWallet);
             localStorage.setItem("arc_wallet_session", JSON.stringify(updatedWallet));
             try {
-              await fetch("/api/wallet/auth", {
+              await fetch(`${API_BASE_URL}/api/wallet/auth`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(updatedWallet)
@@ -349,7 +350,7 @@ export default function App() {
     
     // Sync backend wallet state
     try {
-      await fetch("/api/wallet/auth", {
+      await fetch(`${API_BASE_URL}/api/wallet/auth`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -395,7 +396,7 @@ export default function App() {
 
     // Sync disconnected state back to server
     try {
-      await fetch("/api/wallet/auth", {
+      await fetch(`${API_BASE_URL}/api/wallet/auth`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(disconnectedWallet)
@@ -410,7 +411,7 @@ export default function App() {
   const fetchWallet = async (addressOverride?: string) => {
     try {
       const queryAddress = addressOverride || wallet.address;
-      const res = await fetch(`/api/wallet?address=${encodeURIComponent(queryAddress)}`);
+      const res = await fetch(`${API_BASE_URL}/api/wallet?address=${encodeURIComponent(queryAddress)}`);
       if (res.ok) {
         const data = await res.json();
         setWallet(data);
@@ -422,7 +423,7 @@ export default function App() {
 
   const fetchContacts = async () => {
     try {
-      const res = await fetch("/api/contacts");
+      const res = await fetch(`${API_BASE_URL}/api/contacts`);
       if (res.ok) {
         const data = await res.json();
         setContacts(data);
@@ -435,7 +436,7 @@ export default function App() {
   const fetchTransactions = async (addressOverride?: string) => {
     try {
       const queryAddress = addressOverride || wallet.address;
-      const res = await fetch(`/api/transactions?address=${encodeURIComponent(queryAddress)}`);
+      const res = await fetch(`${API_BASE_URL}/api/transactions?address=${encodeURIComponent(queryAddress)}`);
       if (res.ok) {
         const data = await res.json();
         setTransactions(data);
@@ -448,7 +449,7 @@ export default function App() {
   const handleFaucet = async () => {
     try {
       try {
-        const res = await fetch("/api/wallet/faucet", {
+        const res = await fetch(`${API_BASE_URL}/api/wallet/faucet`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ address: wallet.address })
@@ -480,7 +481,7 @@ export default function App() {
   const handleAddContact = async (name: string, address: string, note: string) => {
     try {
       try {
-        const res = await fetch("/api/contacts", {
+        const res = await fetch(`${API_BASE_URL}/api/contacts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, address, note })
@@ -596,7 +597,7 @@ export default function App() {
     try {
       let intent;
       try {
-        const res = await fetch("/api/parse-intent", {
+        const res = await fetch(`${API_BASE_URL}/api/parse-intent`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: userMessageText })
@@ -815,7 +816,7 @@ export default function App() {
           });
           addSecurityLog(`Extension signing successful. Broadcasted Tx Hash: ${rawHash}`);
           try {
-            const res = await fetch("/api/transaction/execute", {
+            const res = await fetch(`${API_BASE_URL}/api/transaction/execute`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -841,7 +842,7 @@ export default function App() {
         }
       } else {
         // Option B: Post standard payload to server. Express handles onchain live wallet transfers.
-        const res = await fetch("/api/transaction/execute", {
+        const res = await fetch(`${API_BASE_URL}/api/transaction/execute`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
