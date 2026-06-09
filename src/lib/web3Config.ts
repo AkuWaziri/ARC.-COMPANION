@@ -1,75 +1,25 @@
-import { createAppKit } from '@reown/appkit/react';
-import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
-import { defineChain } from 'viem';
+import { createConfig, http } from 'wagmi';
+import { injected } from 'wagmi/connectors';
 import { QueryClient } from '@tanstack/react-query';
+import { defineChain } from 'viem';
 
-// Configure Arc Testnet Definition
-export const arcTestnet = defineChain({
+export const queryClient = new QueryClient();
+
+const arcTestnet = defineChain({
   id: 5042002,
   name: 'Arc Testnet',
-  nativeCurrency: {
-    name: 'USDC',
-    symbol: 'USDC',
-    decimals: 18,
-  },
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
   rpcUrls: {
-    default: {
-      http: ['https://rpc.testnet.arc.network'],
-    },
-    public: {
-      http: ['https://rpc.testnet.arc.network'],
-    },
-  },
-  blockExplorers: {
-    default: {
-      name: 'Arcscan',
-      url: 'https://testnet.arcscan.app',
-    },
-  },
+    default: { http: ['https://rpc.testnet.arc.network'] }
+  }
 });
 
-// Create networks list
-export const networks = [arcTestnet];
-
-// WalletConnect Project ID - fallback to a valid 32-character hex format
-export const projectId = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WALLETCONNECT_PROJECT_ID) || 
-  (typeof window !== 'undefined' && (window as any).VITE_WALLETCONNECT_PROJECT_ID) || 
-  '8dd233da44e056d0d2105fa1799afa74';
-
-// Setup Wagmi Adapter
-export const wagmiAdapter = new WagmiAdapter({
-  projectId,
-  networks,
+const config = createConfig({
+  chains: [arcTestnet],
+  connectors: [injected()],
+  transports: {
+    [arcTestnet.id]: http()
+  }
 });
 
-// Setup React QueryClient
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      retry: 1,
-    },
-  },
-});
-
-// Initialize Reown AppKit Modal
-export const appKit = createAppKit({
-  adapters: [wagmiAdapter],
-  networks: [arcTestnet],
-  metadata: {
-    name: 'Arc Protocol Wallet Connection',
-    description: 'Production-grade Web3 wallet portal on Arc Testnet',
-    url: typeof window !== 'undefined' ? window.location.origin : 'https://testnet.arc.network',
-    icons: ['https://testnet.arc.network/favicon.ico'],
-  },
-  projectId,
-  enableVerify: false, // Disable Reown domain verification to bypass "source has not been authorized yet" in dev sandboxes
-  features: {
-    analytics: false,
-    email: false, // We use our proprietary Enclave OTP Gateway
-    socials: false,
-    allWallets: true, // Enable all wallets (MetaMask, Coinbase, Trust Wallet, Rabby, etc.)
-    verify: false, // Disable verification features where supported
-  },
-  allWallets: 'SHOW',
-} as any);
+export const wagmiAdapter = { wagmiConfig: config };

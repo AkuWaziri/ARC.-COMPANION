@@ -20,7 +20,6 @@ import { WalletState } from "../types";
 import { ethers } from "ethers";
 import { useAuth } from "../context/AuthContext";
 import { useAccount, useConnect, useDisconnect, useSignMessage, useSwitchChain } from "wagmi";
-import { useAppKit } from "@reown/appkit/react";
 import robotAvatar from "../assets/images/friendly_bot_logo_1780649113441.png";
 
 interface EmailAuthModalProps {
@@ -50,7 +49,6 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
   const { disconnectAsync } = useDisconnect();
   const { signMessageAsync } = useSignMessage();
   const { switchChainAsync } = useSwitchChain();
-  const { open: openAppKit } = useAppKit();
   
   const [step, setStep] = useState<'methods' | 'email-input' | 'email-otp' | 'email-passphrase' | 'wallet-connect' | 'restore-mnemonic' | 'wallet-prompt'>('wallet-connect');
   const [walletConnectTab, setWalletConnectTab] = useState<'qr' | 'extension'>('extension');
