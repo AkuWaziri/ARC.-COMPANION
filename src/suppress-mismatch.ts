@@ -2,6 +2,55 @@
 // This executes immediately before any other SDK initializes.
 
 if (typeof window !== 'undefined') {
+  // Safe memory storage mock for restrictive sandbox environments (e.g., iframes, third-party blockades)
+  class MemoryStorage implements Storage {
+    private data: Record<string, string> = {};
+    get length(): number { return Object.keys(this.data).length; }
+    clear(): void { this.data = {}; }
+    getItem(key: string): string | null { return this.data.hasOwnProperty(key) ? this.data[key] : null; }
+    key(index: number): string | null {
+      const keys = Object.keys(this.data);
+      return index >= 0 && index < keys.length ? keys[index] : null;
+    }
+    removeItem(key: string): void { delete this.data[key]; }
+    setItem(key: string, value: string): void { this.data[key] = String(value); }
+  }
+
+  // Self-healing Storage initialization prevents SecurityErrors during script evaluation
+  try {
+    const testKey = '__test__';
+    window.localStorage.setItem(testKey, testKey);
+    window.localStorage.removeItem(testKey);
+  } catch (e) {
+    console.warn("[Storage Override] LocalStorage is blocked. Activating MemoryStorage fallback.");
+    try {
+      Object.defineProperty(window, 'localStorage', {
+        value: new MemoryStorage(),
+        configurable: true,
+        writable: true,
+      });
+    } catch {
+      (window as any).localStorage = new MemoryStorage();
+    }
+  }
+
+  try {
+    const testKey = '__test__';
+    window.sessionStorage.setItem(testKey, testKey);
+    window.sessionStorage.removeItem(testKey);
+  } catch (e) {
+    console.warn("[Storage Override] SessionStorage is blocked. Activating MemoryStorage fallback.");
+    try {
+      Object.defineProperty(window, 'sessionStorage', {
+        value: new MemoryStorage(),
+        configurable: true,
+        writable: true,
+      });
+    } catch {
+      (window as any).sessionStorage = new MemoryStorage();
+    }
+  }
+
   const ignoreErrorPattern = /has not been authorized yet|walletconnect|reown|closed without opened|without opened|vite-ping|code: 3000|JWT validation error|Serialization error|EOF while parsing|connection closed abnormally/i;
 
   const getErrorMessage = (arg: any): string => {
@@ -141,46 +190,19 @@ if (typeof window !== 'undefined') {
     }
   }, true);
 
-  // 6. Intercept postMessage communications from other domains verifying our origin with addEventListener
-  const originalAddEventListener = window.addEventListener;
-  window.addEventListener = function (type: string, listener: any, options?: any) {
-    if (type === 'message') {
-      const wrappedListener = function (this: any, event: MessageEvent) {
-        // Safe check origin or message formats associated with verify domain match
-        const dataStr = event.data ? (typeof event.data === 'string' ? event.data : JSON.stringify(event.data)) : '';
-        if (ignoreErrorPattern.test(dataStr) || (event.origin && (event.origin.includes('verify.walletconnect') || event.origin.includes('verify.reown') || event.origin.includes('walletconnect.com') || event.origin.includes('reown.com')))) {
-          // Block message execution
-          return;
-        }
-        return listener.call(this, event);
-      };
-      return originalAddEventListener.call(window, type, wrappedListener, options);
-    }
-    return originalAddEventListener.call(window, type, listener, options);
-  };
-
-  // 7. Intercept postMessage via direct window.onmessage assignments
-  let activeOnMessage: any = null;
-  Object.defineProperty(window, 'onmessage', {
-    get() {
-      return activeOnMessage;
-    },
-    set(newVal) {
-      if (typeof newVal === 'function') {
-        activeOnMessage = function (this: any, event: MessageEvent) {
-          const dataStr = event.data ? (typeof event.data === 'string' ? event.data : JSON.stringify(event.data)) : '';
-          if (ignoreErrorPattern.test(dataStr) || (event.origin && (event.origin.includes('verify.walletconnect') || event.origin.includes('verify.reown') || event.origin.includes('walletconnect.com') || event.origin.includes('reown.com')))) {
-            return;
-          }
-          return newVal.call(this, event);
-        };
-      } else {
-        activeOnMessage = newVal;
+  // 6. Intercept postMessage communications from other domains verifying our origin via capture-phase listener.
+  // This is non-invasive and allows standard libraries (React, Web3 components) to safely register and cleanly remove their own handlers.
+  window.addEventListener('message', (event) => {
+    try {
+      const dataStr = event.data ? (typeof event.data === 'string' ? event.data : JSON.stringify(event.data)) : '';
+      if (ignoreErrorPattern.test(dataStr) || (event.origin && (event.origin.includes('verify.walletconnect') || event.origin.includes('verify.reown') || event.origin.includes('walletconnect.com') || event.origin.includes('reown.com')))) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
       }
-    },
-    configurable: true,
-    enumerable: true
-  });
+    } catch {
+      // Handle cross-origin or non-stringifiable message data serialization failures
+    }
+  }, true);
 
   // 8. WebSocket Interceptor and Rate-Limit Sanitizer
   const originalWebSocket = window.WebSocket;
@@ -227,64 +249,63 @@ if (typeof window !== 'undefined') {
     } catch (e) {}
   };
 
-  const CustomWebSocket = function(this: any, url: string, protocols?: string | string[]) {
-    console.log(`[WebSocket Debug] Intercepting connection to URL: ${url}`);
-    
-    const isWcRelay = url.includes("walletconnect") || url.includes("reown") || url.includes("relay");
-    const isConnectingWeb3 = localStorage.getItem("arc_connecting_web3") === "true";
-    const userSignedOut = localStorage.getItem("arc_user_signed_out") === "true";
-    
-    const jwtStatus = verifyJWTInInterceptor();
-    
-    console.log(`[WebSocket Debug] JWT Presence: ${localStorage.getItem("arc_session_token") ? "Detected" : "Missing"}`);
-    if (jwtStatus.payload) {
-      console.log(`[WebSocket Debug] JWT Payload:`, jwtStatus.payload);
-      console.log(`[WebSocket Debug] JWT Expiration check: exp=${jwtStatus.payload.exp} (valid=${jwtStatus.isValid})`);
-    }
-    
-    let targetUrl = url;
-    
-    if (isWcRelay) {
-      if (!jwtStatus.isValid && !isConnectingWeb3) {
-        console.warn(`[WebSocket Interceptor] Blocked unauthorized WalletConnect socket instantiation (Err: ${jwtStatus.error}). Redirecting to loopback to fail gracefully without crash.`);
-        
-        if (localStorage.getItem("arc_session_token")) {
-          clearAuthInInterceptor();
-        }
-        
-        targetUrl = "ws://127.0.0.1:9999/unauthorized-walletconnect";
-      } else {
-        const now = Date.now();
-        connectionAttempts = connectionAttempts.filter(attempt => now - attempt.timestamp < 30000); // 30s window
-        
-        if (connectionAttempts.length >= 25) {
-          console.warn(`[WebSocket Interceptor] Repeated connection throttle triggered: limit of 25 requests / 30 seconds reached. Redirecting to loopback to prevent connection storm.`);
-          targetUrl = "ws://127.0.0.1:9999/throttled-walletconnect";
+  class CustomWebSocket extends originalWebSocket {
+    constructor(url: string, protocols?: string | string[]) {
+      console.log(`[WebSocket Debug] Intercepting connection to URL: ${url}`);
+      
+      const isWcRelay = url.includes("walletconnect") || url.includes("reown") || url.includes("relay");
+      const isConnectingWeb3 = (() => {
+        try { return localStorage.getItem("arc_connecting_web3") === "true"; } catch { return false; }
+      })();
+      
+      const jwtStatus = verifyJWTInInterceptor();
+      
+      console.log(`[WebSocket Debug] JWT Presence: ${(() => {
+        try { return localStorage.getItem("arc_session_token") ? "Detected" : "Missing"; } catch { return "Error/Blocked"; }
+      })()}`);
+      
+      if (jwtStatus.payload) {
+        console.log(`[WebSocket Debug] JWT Payload:`, jwtStatus.payload);
+        console.log(`[WebSocket Debug] JWT Expiration check: exp=${jwtStatus.payload.exp} (valid=${jwtStatus.isValid})`);
+      }
+      
+      let targetUrl = url;
+      
+      if (isWcRelay) {
+        if (!jwtStatus.isValid && !isConnectingWeb3) {
+          console.warn(`[WebSocket Interceptor] Blocked unauthorized WalletConnect socket instantiation (Err: ${jwtStatus.error}). Redirecting to loopback to fail gracefully without crash.`);
+          
+          try {
+            if (localStorage.getItem("arc_session_token")) {
+              clearAuthInInterceptor();
+            }
+          } catch {}
+          
+          targetUrl = "ws://127.0.0.1:9999/unauthorized-walletconnect";
         } else {
-          connectionAttempts.push({ timestamp: now });
+          const now = Date.now();
+          connectionAttempts = connectionAttempts.filter(attempt => now - attempt.timestamp < 30000); // 30s window
+          
+          if (connectionAttempts.length >= 25) {
+            console.warn(`[WebSocket Interceptor] Repeated connection throttle triggered: limit of 25 requests / 30 seconds reached. Redirecting to loopback to prevent connection storm.`);
+            targetUrl = "ws://127.0.0.1:9999/throttled-walletconnect";
+          } else {
+            connectionAttempts.push({ timestamp: now });
+          }
         }
       }
-    }
 
-    try {
-      const wsObj = protocols ? new originalWebSocket(targetUrl, protocols) : new originalWebSocket(targetUrl);
-      
-      wsObj.addEventListener('error', (errEvent) => {
+      if (protocols) {
+        super(targetUrl, protocols);
+      } else {
+        super(targetUrl);
+      }
+
+      this.addEventListener('error', (errEvent) => {
         console.warn(`[WebSocket Error Handler] Socket emitted an error state cleanly:`, errEvent);
       });
-      
-      return wsObj;
-    } catch (constructorErr: any) {
-      console.error(`[WebSocket Error Handler] Native constructor exception: ${constructorErr.message}`);
-      throw constructorErr;
     }
-  } as any;
-
-  CustomWebSocket.prototype = originalWebSocket.prototype;
-  CustomWebSocket.CONNECTING = originalWebSocket.CONNECTING;
-  CustomWebSocket.OPEN = originalWebSocket.OPEN;
-  CustomWebSocket.CLOSING = originalWebSocket.CLOSING;
-  CustomWebSocket.CLOSED = originalWebSocket.CLOSED;
+  }
   
   try {
     Object.defineProperty(window, 'WebSocket', {
