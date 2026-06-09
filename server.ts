@@ -1751,8 +1751,6 @@ async function start() {
   });
 }
 
-if (process.env.VERCEL !== "1") {
-  start();
-}
+start();
 
 export default app;

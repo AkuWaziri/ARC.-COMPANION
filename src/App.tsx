@@ -855,7 +855,7 @@ export default function App() {
         });
 
         if (!res.ok) {
-          const errorData = await res.json().catch(() => ({ error: "Vercel / Offline static server fallback" }));
+          const errorData = await res.json().catch(() => ({ error: "Offline static server fallback" }));
           throw new Error(errorData.error || "Execution failed on chain broker.");
         }
 
