@@ -26,20 +26,6 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
     setLoadingFaucet(true);
     try {
       await onFaucet();
-      // Simulate micro haptic sound
-      if (typeof window !== "undefined" && window.AudioContext) {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.frequency.setValueAtTime(300, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.15);
-        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.15);
-      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -89,19 +75,7 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
 
             {/* USDC Balance Panel */}
             <div className="space-y-2">
-              <div className="p-3.5 rounded-xl bg-slate-100 border border-slate-300 text-left">
-                <div className="text-[9px] uppercase font-mono tracking-widest text-slate-450 font-bold">ARC GAS BALANCE</div>
-                <div className="flex items-baseline gap-2 mt-1">
-                  <span className="text-2xl font-bold font-display text-slate-950 tracking-tight">
-                    ${wallet.balance.toFixed(4)}
-                  </span>
-                  <span className="text-[9px] font-mono font-bold text-slate-700 bg-slate-200/90 px-2 py-0.5 rounded border border-slate-300/40">
-                    USDC (Native)
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-emerald-50/50 border border-emerald-250 text-left">
+              <div className="p-3.5 rounded-xl bg-emerald-50/50 border border-emerald-255 text-left">
                 <div className="text-[9px] uppercase font-mono tracking-widest text-emerald-650 font-bold">ARC TESTNET USDC BALANCE</div>
                 <div className="flex items-baseline gap-2 mt-1">
                   <span className="text-2xl font-bold font-display text-emerald-900 tracking-tight">
@@ -145,34 +119,6 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
               </div>
             </div>
 
-            {/* EVM Provider Diagnostics Panel */}
-            <div className="p-3 bg-slate-100 border border-slate-300 rounded-xl space-y-2 text-left text-[10px] font-mono leading-normal shadow-3xs">
-              <div className="text-[9px] uppercase font-bold tracking-wider text-slate-500 border-b border-slate-200 pb-1 flex items-center justify-between">
-                <span>EVM Provider Diagnostics</span>
-                <span className={`px-1.5 py-0.2 rounded-full font-bold text-[8px] uppercase ${isWalletConnected ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
-                  {isWalletConnected ? "CONFIRMED" : "DISCONNECTED"}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-y-1.5 gap-x-2 text-[9px] text-slate-600">
-                <div>Provider Name:</div>
-                <div className="font-bold text-slate-900 text-right truncate">{web3ProviderName || "None detected"}</div>
-
-                <div>Active Account:</div>
-                <div className="font-bold text-slate-900 text-right truncate select-all">{web3Address ? `${web3Address.slice(0, 8)}...${web3Address.slice(-6)}` : "None"}</div>
-
-                <div>Chain ID:</div>
-                <div className="font-bold text-slate-900 text-right">{web3ChainId ? `${web3ChainId} (0x${web3ChainId.toString(16)})` : "None"}</div>
-
-                <div>Network Target:</div>
-                <div className="font-bold text-slate-900 text-right">{web3NetworkName || "N/A"}</div>
-              </div>
-
-              {isExternal && !isWalletConnected && (
-                <div className="pt-1.5 border-t border-slate-200 text-[8.5px] text-rose-600 font-sans font-bold leading-tight">
-                  ⚠️ Connection is inactive or mismatched in your wallet application. Please verify that your MetaMask/Rabby is connected to Arc Testnet (5042002).
-                </div>
-              )}
-            </div>
           </div>
         </div>
 

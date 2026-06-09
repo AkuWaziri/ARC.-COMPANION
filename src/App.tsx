@@ -39,6 +39,8 @@ import { AuthGuard } from "./components/AuthGuard";
 import robotAvatar from "./assets/images/friendly_bot_logo_1780649113441.png";
 import { Message, WalletState, Contact, Transaction, SecurityConfig } from "./types";
 
+let lastBeepTime = 0;
+
 export default function App() {
   const { 
     wallet: contextWallet, 
@@ -511,6 +513,12 @@ export default function App() {
   };
 
   const triggerSynthBeep = (startFreq: number, endFreq: number, type: 'success' | 'fail' | 'neutral') => {
+    const now = Date.now();
+    if (now - lastBeepTime < 100) {
+      return; // Do not replay sound if already triggered within 100ms
+    }
+    lastBeepTime = now;
+
     if (typeof window !== "undefined" && window.AudioContext) {
       try {
         const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
