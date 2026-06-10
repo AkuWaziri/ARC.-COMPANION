@@ -196,7 +196,7 @@ export default function TransactionHistory({ transactions, onRefresh }: Transact
                         To: {tx.toName}
                       </span>
                       {tx.securitySigned && (
-                        <span className="flex items-center gap-0.5 text-[8px] bg-emerald-100 text-emerald-808 border border-emerald-200 px-1 py-0.2 rounded font-semibold whitespace-nowrap">
+                        <span className="flex items-center gap-0.5 text-[8px] bg-emerald-100 text-emerald-800 border border-emerald-200 px-1 py-0.2 rounded font-semibold whitespace-nowrap">
                           <ShieldCheck className="w-2.5 h-2.5" /> HSM-Signed
                         </span>
                       )}
@@ -208,8 +208,8 @@ export default function TransactionHistory({ transactions, onRefresh }: Transact
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-[10px] text-slate-450 font-mono">
-                    <span className="truncate max-w-[150px] text-slate-500 hover:text-slate-805 transition" title={tx.toAddress}>
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                    <span className="truncate max-w-[150px] text-slate-500 hover:text-slate-800 transition" title={tx.toAddress}>
                       {truncateAddress(tx.toAddress)}
                     </span>
                     <span>
@@ -218,7 +218,7 @@ export default function TransactionHistory({ transactions, onRefresh }: Transact
                   </div>
 
                   {tx.note && (
-                    <div className="text-[10px] italic text-slate-605 border-l border-slate-250 pl-1.5 mt-0.5 truncate">
+                    <div className="text-[10px] italic text-slate-600 border-l border-slate-200 pl-1.5 mt-0.5 truncate">
                       "{tx.note}"
                     </div>
                   )}
@@ -232,7 +232,7 @@ export default function TransactionHistory({ transactions, onRefresh }: Transact
                           ? "bg-rose-500" 
                           : "bg-blue-500 animate-pulse"
                       }`} />
-                      <span className="text-slate-450">{tx.status}</span>
+                      <span className="text-slate-400">{tx.status}</span>
                     </div>
                     {tx.txHash ? (
                       tx.isLocalLedger ? (

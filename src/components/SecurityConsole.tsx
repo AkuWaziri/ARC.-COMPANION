@@ -128,7 +128,7 @@ export default function SecurityConsole({ securityConfig, onToggleBiometrics, en
               </>
             ) : tested ? (
               <>
-                <Check className="w-3 h-3 text-emerald-650 animate-bounce" />
+                <Check className="w-3 h-3 text-emerald-600 animate-bounce" />
                 <span className="text-emerald-700 font-bold">Biometric Verified</span>
               </>
             ) : (

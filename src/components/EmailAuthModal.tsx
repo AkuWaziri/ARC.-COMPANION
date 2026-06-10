@@ -21,7 +21,6 @@ import { ethers } from "ethers";
 import { useAuth } from "../context/AuthContext";
 import { useAccount, useConnect, useDisconnect, useSignMessage, useSwitchChain } from "wagmi";
 import robotAvatar from "../assets/images/friendly_bot_logo_1780649113441.png";
-import { API_BASE_URL } from "../config";
 
 interface EmailAuthModalProps {
   onLoginSuccess: (wallet: WalletState, secureLogs: string[], userEmail?: string) => void;
@@ -370,7 +369,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
 
     try {
       // 1. Query email wallet directory
-      const res = await fetch(`${API_BASE_URL}/api/wallet/by-email/${encodeURIComponent(email)}`);
+      const res = await fetch(`/api/wallet/by-email/${encodeURIComponent(email)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.found) {
@@ -381,7 +380,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
       }
 
       // 2. Request OTP PIN from secure backend API
-      const otpRes = await fetch(`${API_BASE_URL}/api/auth/send-otp`, {
+      const otpRes = await fetch("/api/auth/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email })
@@ -426,7 +425,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
     triggerBeep(520, 800, "neutral");
 
     try {
-      const verifyRes = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
+      const verifyRes = await fetch("/api/auth/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, code: enteredOtp })
@@ -482,7 +481,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
     triggerBeep(450, 600, "neutral");
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/google/url`);
+      const res = await fetch("/api/auth/google/url");
       if (res.ok) {
         const data = await res.json();
         const url = data.url;
@@ -613,7 +612,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
 
       // Sync backend wallet state
       try {
-        await fetch(`${API_BASE_URL}/api/wallet/auth`, {
+        await fetch("/api/wallet/auth", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -673,7 +672,7 @@ export default function EmailAuthModal({ onLoginSuccess, triggerBeep, forceState
     setErrorMsg("");
     try {
       // 1. Fetch nonce from server-side with cache-busting timestamp
-      const nonceRes = await fetch(`${API_BASE_URL}/api/auth/nonce?t=${Date.now()}`);
+      const nonceRes = await fetch(`/api/auth/nonce?t=${Date.now()}`);
       if (!nonceRes.ok) throw new Error("Could not retrieve secure nonce from authentication coordinator.");
       const { nonce } = await nonceRes.json();
 
@@ -713,7 +712,7 @@ Issued At: ${IssuedAt}`;
       }
 
       // 4. Submit signature details server-side for cryptographic session generation
-      const verifRes = await fetch(`${API_BASE_URL}/api/auth/siwe`, {
+      const verifRes = await fetch("/api/auth/siwe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -939,7 +938,7 @@ Issued At: ${IssuedAt}`;
 
       let balance = 150.00;
       try {
-        const responseBalance = await fetch(`${API_BASE_URL}/api/wallet/balance/${realAddress}`);
+        const responseBalance = await fetch(`/api/wallet/balance/${realAddress}`);
         if (responseBalance.ok) {
           const balanceData = await responseBalance.json();
           balance = balanceData.balance ?? 150.00;
@@ -1369,7 +1368,7 @@ Issued At: ${IssuedAt}`;
                           setOtp(receivedOtp.split(""));
                           setErrorMsg("");
                         }}
-                        className="px-3 py-2 bg-emerald-650 hover:bg-emerald-700 text-white rounded-xl text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer select-none shadow-xs hover:scale-[1.02] active:scale-[0.98]"
+                        className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer select-none shadow-xs hover:scale-[1.02] active:scale-[0.98]"
                       >
                         <span>Autofill & Go ⚡</span>
                       </button>
@@ -1673,7 +1672,7 @@ Issued At: ${IssuedAt}`;
                           const sessionToken = "session_" + Math.random().toString(36).substring(2) + "_" + Date.now();
                           login(email, sessionToken);
 
-                          const syncRes = await fetch(`${API_BASE_URL}/api/wallet/auth`, {
+                          const syncRes = await fetch("/api/wallet/auth", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
@@ -1894,7 +1893,7 @@ Issued At: ${IssuedAt}`;
                             className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-bold transition cursor-pointer ${
                               copiedDappUrl 
                                 ? "bg-emerald-100 border-emerald-300 text-emerald-800" 
-                                : "bg-slate-100 border-slate-355 text-slate-755 hover:bg-slate-200"
+                                : "bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200"
                             }`}
                           >
                             {copiedDappUrl ? (

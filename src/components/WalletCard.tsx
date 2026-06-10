@@ -75,8 +75,8 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
 
             {/* USDC Balance Panel */}
             <div className="space-y-2">
-              <div className="p-3.5 rounded-xl bg-emerald-50/50 border border-emerald-255 text-left">
-                <div className="text-[9px] uppercase font-mono tracking-widest text-emerald-650 font-bold">ARC TESTNET USDC BALANCE</div>
+              <div className="p-3.5 rounded-xl bg-emerald-50/50 border border-emerald-200 text-left">
+                <div className="text-[9px] uppercase font-mono tracking-widest text-emerald-600 font-bold">ARC TESTNET USDC BALANCE</div>
                 <div className="flex items-baseline gap-2 mt-1">
                   <span className="text-2xl font-bold font-display text-emerald-900 tracking-tight">
                     ${wallet.balance.toFixed(4)}
@@ -136,7 +136,7 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
                 </span>
                 <button
                   onClick={copyAddress}
-                  className="p-1 rounded text-slate-500 hover:text-slate-950 hover:bg-white border border-slate-205 transition"
+                  className="p-1 rounded text-slate-500 hover:text-slate-950 hover:bg-white border border-slate-200 transition"
                   title="Copy Address"
                 >
                   {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
@@ -145,7 +145,7 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
                   href={`https://testnet.arcscan.app/address/${wallet.address}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-white border border-slate-205 transition flex items-center justify-center"
+                  className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-white border border-slate-200 transition flex items-center justify-center"
                   title="View Address on Arcscan"
                 >
                   <ExternalLink className="w-3 h-3" />
@@ -167,7 +167,7 @@ export default function WalletCard({ wallet, onRefresh, onFaucet, networkMode = 
                 </button>
               </div>
               {showSeed ? (
-                <div className="text-[10px] font-mono p-1.5 bg-white rounded text-slate-805 border border-slate-200 leading-normal break-words">
+                <div className="text-[10px] font-mono p-1.5 bg-white rounded text-slate-800 border border-slate-200 leading-normal break-words">
                   {wallet.seedPhrase}
                 </div>
               ) : (
