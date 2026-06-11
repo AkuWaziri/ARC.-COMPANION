@@ -3,6 +3,8 @@ import { WalletState } from "../types";
 import { useAccount, useDisconnect } from "wagmi";
 import { verifyStoredJWT, clearCachedAuth } from "../lib/jwtHelper";
 
+const API = import.meta.env.VITE_API_URL || '';
+
 export interface AuthContextType {
   userEmail: string | null;
   sessionToken: string | null;
@@ -71,12 +73,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Only show "Connected" when:
   // 1. A wallet address is returned.
   // 2. The wallet provider confirms connection (if external).
-  // 3. The correct chain is selected (Chain ID 5042002).
   const isWalletConnected = !!(
-    isAuthenticatedSession() && 
-    wallet && 
-    (isExternalWallet 
-      ? (wagmiIsConnected && !!wagmiAddress && wagmiChainId === 5042002) 
+    isAuthenticatedSession() &&
+    wallet &&
+    (isExternalWallet
+      ? (wagmiIsConnected && !!wagmiAddress)
       : (wallet.isConnected && !!wallet.address))
   );
 
@@ -115,19 +116,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [wagmiIsConnected, wagmiAddress, wagmiChainId, connector]);
 
   // 2. Automatic Teardown of Invalid Sessions
+  const hasInitialized = useRef(false);
+
   useEffect(() => {
+    if (!hasInitialized.current) return;
     if (!loading && isExternalWallet) {
-      // If external wallet says disconnected, teardown this invalid session automatically
       if (wagmiStatus === "disconnected" || !wagmiIsConnected) {
-        console.warn("[Web3 Warning] Invalid session resolved. External provider disconnected. Automatically separating wallet context.");
         teardownWalletSession();
-      }
-      // If connected to the wrong chain, automatically reset or enforce disconnect
-      else if (wagmiChainId !== 5042002) {
-        console.warn(`[Web3 Warning] Incorrect Chain ID (${wagmiChainId}) detected. Enforcing required Arc Testnet chain.`);
       }
     }
   }, [loading, isExternalWallet, wagmiIsConnected, wagmiStatus, wagmiChainId]);
+
+  useEffect(() => {
+    if (!loading) hasInitialized.current = true;
+  }, [loading]);
 
   const teardownWalletSession = () => {
     setWallet(null);
@@ -158,7 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       try {
         setSessionToken(storedToken);
-        const res = await fetch(`/api/auth/verify-session?token=${encodeURIComponent(storedToken)}`);
+        const res = await fetch(`${API}/api/auth/verify-session?token=${encodeURIComponent(storedToken)}`);
         if (res.ok) {
           const data = await res.json();
           if (data.success) {
@@ -244,7 +246,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      await fetch("/api/wallet/auth", {
+      await fetch(`${API}/api/wallet/auth`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isConnected: false })
